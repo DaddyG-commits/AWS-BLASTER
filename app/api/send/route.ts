@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import * as brevo from '@getbrevo/brevo';
+
+const apiInstance = new brevo.TransactionalEmailsApi();
+apiInstance.setApiKey(
+  brevo.TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY || ''
+);
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { to, subject, text, html, from } = body;
+    const { to, subject, text, html, fromName } = body;
 
     // Validate required fields
     if (!to || !subject || (!text && !html)) {
@@ -14,59 +20,69 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check environment variables
-    const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASSWORD;
-    const defaultFrom = process.env.SMTP_FROM || user;
+    const apiKey = process.env.BREVO_API_KEY;
+    const senderEmail = process.env.BREVO_SENDER_EMAIL;
+    const senderName = process.env.BREVO_SENDER_NAME || 'AWS BLASTER';
 
-    if (!host || !user || !pass) {
+    if (!apiKey || !senderEmail) {
       return NextResponse.json(
-        { error: 'SMTP configuration missing. Please set SMTP_HOST, SMTP_USER, and SMTP_PASSWORD environment variables.' },
+        { error: 'Brevo configuration missing. Please set BREVO_API_KEY and BREVO_SENDER_EMAIL environment variables.' },
         { status: 500 }
       );
     }
 
-    // Create transporter for Zoho Mail SMTP
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465, // true for 465, false for other ports (STARTTLS on 587)
-      auth: {
-        user,
-        pass,
-      },
-      // Optional: increase timeout for Vercel serverless
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    });
+    // Prepare recipients (support single email or array)
+    const recipients = Array.isArray(to)
+      ? to.map((email: string) => ({ email: email.trim() }))
+      : [{ email: to.trim() }];
 
-    // Send the email
-    const info = await transporter.sendMail({
-      from: from || defaultFrom,
-      to,
-      subject,
-      text: text || undefined,
-      html: html || undefined,
-    });
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.sender = {
+      name: fromName || senderName,
+      email: senderEmail,
+    };
+    sendSmtpEmail.to = recipients;
+
+    // Prefer HTML if provided, otherwise use text
+    if (html) {
+      sendSmtpEmail.htmlContent = html;
+      if (text) {
+        sendSmtpEmail.textContent = text;
+      }
+    } else {
+      sendSmtpEmail.textContent = text;
+      // Convert plain text to simple HTML as fallback
+      sendSmtpEmail.htmlContent = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+    }
+
+    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
 
     return NextResponse.json({
       success: true,
-      messageId: info.messageId,
-      response: info.response,
+      messageId: result.body?.messageId || 'sent',
+      message: 'Email sent successfully via Brevo',
     });
   } catch (error: any) {
-    console.error('SMTP Error:', error);
+    console.error('Brevo Error:', error);
 
-    // Provide helpful error messages
-    let errorMessage = error.message || 'Failed to send email';
+    let errorMessage = 'Failed to send email';
 
-    if (errorMessage.includes('535') || errorMessage.includes('Authentication')) {
-      errorMessage = 'Authentication failed. Check your SMTP_USER and SMTP_PASSWORD (use App-Specific Password if 2FA is enabled). Also verify you are using the correct host (smtp.zoho.com vs smtppro.zoho.com).';
-    } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ETIMEDOUT')) {
-      errorMessage = 'Could not connect to SMTP server. Check SMTP_HOST and SMTP_PORT.';
+    if (error.response?.body?.message) {
+      errorMessage = error.response.body.message;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    // Helpful common errors
+    if (errorMessage.includes('api-key') || errorMessage.includes('unauthorized')) {
+      errorMessage = 'Invalid Brevo API key. Please check your BREVO_API_KEY.';
+    } else if (errorMessage.includes('sender')) {
+      errorMessage = 'Sender email not verified. Please verify the sender email in your Brevo account.';
     }
 
     return NextResponse.json(
@@ -76,14 +92,14 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Optional: Health check / GET handler
+// Health check
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
-    service: 'AWS BLASTER - Zoho SMTP',
+    service: 'AWS BLASTER - Brevo Email',
     endpoints: {
       send: 'POST /api/send',
     },
-    requiredEnv: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD'],
+    requiredEnv: ['BREVO_API_KEY', 'BREVO_SENDER_EMAIL'],
   });
 }
