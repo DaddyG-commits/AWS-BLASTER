@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 export default function Home() {
   const [to, setTo] = useState('');
+  const [fromName, setFromName] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [isHtml, setIsHtml] = useState(true);
@@ -19,6 +20,7 @@ export default function Home() {
       const payload: any = {
         to: to.split(',').map((email) => email.trim()).filter(Boolean),
         subject,
+        fromName: fromName.trim() || undefined,
       };
 
       if (isHtml) {
@@ -43,6 +45,7 @@ export default function Home() {
         setTo('');
         setSubject('');
         setBody('');
+        // Keep fromName for convenience
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to send email' });
       }
@@ -59,6 +62,20 @@ export default function Home() {
       <p className="subtitle">Powered by Brevo • HTML Email Support</p>
 
       <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label htmlFor="fromName">From Name</label>
+          <input
+            id="fromName"
+            type="text"
+            value={fromName}
+            onChange={(e) => setFromName(e.target.value)}
+            placeholder="e.g. John from Acme, Alex Support"
+          />
+          <small style={{ color: '#888', fontSize: '0.8rem' }}>
+            This is the name the recipient will see
+          </small>
+        </div>
+
         <div className="form-group">
           <label htmlFor="to">To Email(s)</label>
           <input
