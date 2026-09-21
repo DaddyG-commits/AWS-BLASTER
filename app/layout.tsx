@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'AWS BLASTER - Zoho SMTP Email Service',
-  description: 'Fully functional SMTP email sending service powered by Zoho Mail, deployed on Vercel',
+  title: 'AWS BLASTER',
+  description: 'HTML Email Service',
 };
 
 export default function RootLayout({
