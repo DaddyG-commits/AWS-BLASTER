@@ -59,7 +59,7 @@ export default function Home() {
   return (
     <div className="container">
       <h1>AWS BLASTER</h1>
-      <p className="subtitle">Powered by Brevo • HTML Email Support</p>
+      <p className="subtitle">HTML Email Service</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
@@ -78,13 +78,14 @@ export default function Home() {
 
         <div className="form-group">
           <label htmlFor="to">To Email(s)</label>
-          <input
+          <textarea
             id="to"
-            type="text"
             value={to}
             onChange={(e) => setTo(e.target.value)}
             placeholder="recipient@example.com, another@example.com"
             required
+            rows={4}
+            style={{ resize: 'vertical' }}
           />
           <small style={{ color: '#888', fontSize: '0.8rem' }}>
             Separate multiple emails with commas
