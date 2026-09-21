@@ -59,7 +59,6 @@ export default function Home() {
   return (
     <div className="container">
       <h1>AWS BLASTER</h1>
-      <p className="subtitle">HTML Email Service</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
