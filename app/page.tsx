@@ -102,7 +102,7 @@ export default function Home() {
             id="body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder={isHtml ? '<h1>Hello!</h1><p>This is <strong>HTML</strong> content.</p>' : 'Write your plain text message here...'}
+            placeholder={isHtml ? 'Paste your HTML here...' : 'Write your message here...'}
             required
           />
         </div>
