@@ -22,6 +22,9 @@ type Msg = {
 export default function InboxPage() {
   const [quota, setQuota] = useState<Quota | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [history, setHistory] = useState<{ from: string; to: string } | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +39,7 @@ export default function InboxPage() {
       }
       setQuota(data.quota);
       setMessages(data.messages || []);
+      setHistory(data.history || null);
     } catch (e: any) {
       setError(e.message || 'Failed to load');
     } finally {
@@ -58,8 +62,10 @@ export default function InboxPage() {
 
   return (
     <div className="container wide">
-      <h1>Inbox &amp; Quota</h1>
-      <p className="subtitle">Sent activity from Brevo · 300/day free tier</p>
+      <h1>Inbox & Quota</h1>
+      <p className="subtitle">
+        Full send history (success + failures) · 300/day free tier
+      </p>
 
       {quota && (
         <div className="quota-card">
@@ -84,6 +90,14 @@ export default function InboxPage() {
         </div>
       )}
 
+      {history && (
+        <p className="muted" style={{ paddingTop: 0, paddingBottom: 8 }}>
+          Showing history from <strong>{history.from}</strong> →{' '}
+          <strong>{history.to}</strong>
+          {messages.length > 0 ? ` · ${messages.length} events` : ''}
+        </p>
+      )}
+
       <div className="row-actions" style={{ marginBottom: 16 }}>
         <button type="button" onClick={load} disabled={loading}>
           {loading ? 'Refreshing…' : 'Refresh'}
@@ -93,11 +107,13 @@ export default function InboxPage() {
       {error && <div className="message error">{error}</div>}
 
       {loading && !messages.length && (
-        <p className="muted">Loading sent messages…</p>
+        <p className="muted">Loading full history…</p>
       )}
 
       {!loading && !error && messages.length === 0 && (
-        <p className="muted">No events found for today yet. Send an email first.</p>
+        <p className="muted">
+          No events found yet. Send an email and hit Refresh.
+        </p>
       )}
 
       <div className="list">
@@ -117,8 +133,8 @@ export default function InboxPage() {
       </div>
 
       <div className="api-info">
-        <p>Data from Brevo transactional statistics</p>
-        <p>Free plan limit is typically 300 emails / day</p>
+        <p>All events from Brevo (sent, delivered, bounces, blocked, etc.)</p>
+        <p>Quota bar = today only · List = full project history</p>
       </div>
     </div>
   );
