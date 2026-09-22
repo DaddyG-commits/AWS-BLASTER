@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from 'react';
 
 const LINKS = [
   { href: '/', label: 'Send Email' },
-  { href: '/inbox', label: 'Inbox & Quota' },
   { href: '/tools', label: 'Extractor & Validator' },
   { href: '/otp', label: 'OTP Sender' },
 ];
