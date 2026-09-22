@@ -46,16 +46,19 @@ export default function Home() {
       if (res.ok) {
         setMessage({
           type: 'success',
-          text: `Email sent successfully! Message ID: ${data.messageId}`,
+          text: 'Email sent successfully',
         });
         setTo('');
         setSubject('');
         setBody('');
       } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to send email' });
+        setMessage({
+          type: 'error',
+          text: data.error || 'Failed to send email',
+        });
       }
     } catch {
-      setMessage({ type: 'error', text: 'Network error. Please try again.' });
+      setMessage({ type: 'error', text: 'Failed to send email' });
     } finally {
       setLoading(false);
     }
@@ -64,7 +67,7 @@ export default function Home() {
   return (
     <div className="container">
       <h1>AWS BLASTER</h1>
-      <p className="subtitle">Send HTML or plain email via Brevo</p>
+      <p className="subtitle">Send HTML or plain email via Gmail</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
@@ -159,9 +162,6 @@ export default function Home() {
       )}
 
       <div className="api-info">
-        <p>
-          API: <code>POST /api/send</code>
-        </p>
         <p>Use the menu for Inbox, Tools, and OTP</p>
       </div>
     </div>

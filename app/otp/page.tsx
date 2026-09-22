@@ -38,13 +38,16 @@ export default function OtpPage() {
         setLastOtp(data.otp || null);
         setMessage({
           type: 'success',
-          text: `OTP sent! Message ID: ${data.messageId}`,
+          text: 'OTP sent successfully',
         });
       } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to send OTP' });
+        setMessage({
+          type: 'error',
+          text: data.error || 'Failed to send OTP',
+        });
       }
     } catch {
-      setMessage({ type: 'error', text: 'Network error. Please try again.' });
+      setMessage({ type: 'error', text: 'Failed to send OTP' });
     } finally {
       setLoading(false);
     }
@@ -53,7 +56,7 @@ export default function OtpPage() {
   return (
     <div className="container">
       <h1>OTP Sender</h1>
-      <p className="subtitle">Generate &amp; email a one-time code via Brevo</p>
+      <p className="subtitle">Generate &amp; email a one-time code via Gmail</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
@@ -127,18 +130,10 @@ export default function OtpPage() {
 
       {lastOtp && (
         <div className="message info" style={{ marginTop: 12 }}>
-          Code for testing: <strong style={{ letterSpacing: 3 }}>{lastOtp}</strong>
-          <div style={{ fontSize: '0.8rem', marginTop: 6, opacity: 0.85 }}>
-            Shown here for convenience — remove from API in strict production if needed
-          </div>
+          Code for testing:{' '}
+          <strong style={{ letterSpacing: 3 }}>{lastOtp}</strong>
         </div>
       )}
-
-      <div className="api-info">
-        <p>
-          API: <code>POST /api/otp</code>
-        </p>
-      </div>
     </div>
   );
 }
