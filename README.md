@@ -1,103 +1,53 @@
 # AWS BLASTER
 
-Fully functional email service powered by **Brevo**, designed for deployment on **Vercel**.
+Email service powered by **Gmail SMTP** (Google App Password), deployed on **Vercel**.
 
 ## Features
 
-- Send emails via Brevo Transactional API
-- Full **HTML email** support
-- Multiple recipients (comma-separated)
-- Beautiful web UI for testing
-- REST API endpoint (`POST /api/send`)
-- Fully serverless – works perfectly on Vercel
+- Send HTML / plain email via Gmail
+- Inbox status page (quota notes + Gmail Sent guidance)
+- Email extractor & validator
+- OTP sender
+- Dropdown navigation
 
 ## Setup
 
-### 1. Create a Brevo Account
+### 1. Google App Password
 
-1. Sign up at [https://www.brevo.com](https://www.brevo.com)
-2. Verify your email and complete account approval
-3. Go to **SMTP & API → API Keys** and create a **v3 API key**
-4. Verify a sender email address (or domain) in Brevo
+1. Use account: `lawofficeclientdesk@gmail.com` (or your own)
+2. Enable **2-Step Verification**
+3. Create an App Password: https://myaccount.google.com/apppasswords
+4. Copy the 16-character password
 
-### 2. Configure Environment Variables
+### 2. Vercel environment variables
 
-Copy the example file:
+```env
+SMTP_USER=lawofficeclientdesk@gmail.com
+SMTP_PASS=xxxx xxxx xxxx xxxx
+MAIL_FROM=lawofficeclientdesk@gmail.com
+MAIL_FROM_NAME=AWS BLASTER
+```
+
+Spaces in the App Password are fine (stripped automatically).
+
+Redeploy after saving env vars.
+
+### 3. Local
 
 ```bash
 cp .env.example .env.local
-```
-
-Edit `.env.local`:
-
-```env
-BREVO_API_KEY=your-brevo-api-v3-key
-BREVO_SENDER_EMAIL=your-verified-email@yourdomain.com
-BREVO_SENDER_NAME=AWS BLASTER
-```
-
-### 3. Install & Run Locally
-
-```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+## API
 
-### 4. Deploy to Vercel
+- `POST /api/send` — send email
+- `POST /api/otp` — send OTP
+- `GET /api/inbox` — provider status
+- `GET /api/send` — health check
 
-1. Import the repo into Vercel
-2. Add the same environment variables
-3. Deploy
+## Notes
 
-## API Usage
-
-### Send Email
-
-```http
-POST /api/send
-Content-Type: application/json
-
-{
-  "to": "recipient@example.com",
-  "subject": "Hello from AWS BLASTER",
-  "html": "<h1>Hello!</h1><p>This is an <strong>HTML</strong> email.</p>",
-  "text": "Optional plain text version"
-}
-```
-
-You can also send to multiple people:
-
-```json
-{
-  "to": ["user1@example.com", "user2@example.com"],
-  "subject": "Hello everyone",
-  "html": "<p>Hi there!</p>"
-}
-```
-
-**Response (success):**
-```json
-{
-  "success": true,
-  "messageId": "<message-id>",
-  "message": "Email sent successfully via Brevo"
-}
-```
-
-### Health Check
-
-```http
-GET /api/send
-```
-
-## Free Tier Limits (Brevo)
-
-- **300 emails per day**
-- Permanent free plan (no credit card required)
-- Full transactional + marketing features
-
-## License
-
-MIT
+- Gmail free accounts are typically limited to ~500 sends/day.
+- Sent history is in **Gmail → Sent**, not in Brevo.

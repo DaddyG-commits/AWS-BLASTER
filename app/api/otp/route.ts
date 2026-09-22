@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as brevo from '@getbrevo/brevo';
+import {
+  formatMailError,
+  isMailConfigured,
+  sendMail,
+} from '../../../lib/mail';
 
 function generateOtp(length: number) {
   const n = Math.max(4, Math.min(8, length || 6));
@@ -25,16 +29,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const apiKey = process.env.BREVO_API_KEY;
-    const senderEmail = process.env.BREVO_SENDER_EMAIL;
-    const senderName =
-      fromName || process.env.BREVO_SENDER_NAME || 'AWS BLASTER';
-
-    if (!apiKey || !senderEmail) {
+    if (!isMailConfigured()) {
       return NextResponse.json(
         {
           error:
-            'Brevo configuration missing. Set BREVO_API_KEY and BREVO_SENDER_EMAIL.',
+            'Gmail not configured. Set SMTP_USER and SMTP_PASS (Google App Password) on Vercel.',
         },
         { status: 500 }
       );
@@ -49,9 +48,7 @@ export async function POST(request: NextRequest) {
         .replace(/\{\{code\}\}/gi, otp) ||
       `Your verification code is: ${otp}\n\nThis code expires in 10 minutes. If you did not request this, ignore this email.`;
 
-    const html =
-      body.html?.trim() ||
-      `<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="font-family:Arial,Helvetica,sans-serif;background:#f6f8fa;padding:24px">
   <div style="max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e7eb">
@@ -62,39 +59,24 @@ export async function POST(request: NextRequest) {
   </div>
 </body></html>`;
 
-    const apiInstance = new brevo.TransactionalEmailsApi();
-    apiInstance.setApiKey(
-      brevo.TransactionalEmailsApiApiKeys.apiKey,
-      apiKey
-    );
-
-    const sendSmtpEmail = new brevo.SendSmtpEmail();
-    sendSmtpEmail.subject = subject;
-    sendSmtpEmail.sender = { name: senderName, email: senderEmail };
-    sendSmtpEmail.to = [{ email: to }];
-    sendSmtpEmail.textContent = text;
-    sendSmtpEmail.htmlContent = html;
-    sendSmtpEmail.tags = ['otp'];
-
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    const info = await sendMail({
+      to,
+      subject,
+      text,
+      html,
+      fromName: fromName || undefined,
+    });
 
     return NextResponse.json({
       success: true,
-      messageId: result.body?.messageId || 'sent',
-      // Return OTP only for testing convenience — remove in strict production if needed
+      messageId: info.messageId || 'sent',
       otp,
-      message: 'OTP email sent successfully',
+      message: 'OTP email sent successfully via Gmail',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('OTP send error:', error);
-    let errorMessage = 'Failed to send OTP';
-    if (error.response?.body?.message) {
-      errorMessage = error.response.body.message;
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
     return NextResponse.json(
-      { success: false, error: errorMessage },
+      { success: false, error: formatMailError(error) },
       { status: 500 }
     );
   }
