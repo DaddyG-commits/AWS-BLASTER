@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import Nav from './components/Nav';
 
 export const metadata: Metadata = {
   title: 'AWS BLASTER',
-  description: 'HTML Email Service',
+  description: 'HTML Email Service — Send, Inbox, Tools, OTP',
 };
 
 export default function RootLayout({
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Nav />
+        <main className="page-wrap">{children}</main>
+      </body>
     </html>
   );
 }

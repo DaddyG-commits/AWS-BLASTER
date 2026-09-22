@@ -9,7 +9,10 @@ export default function Home() {
   const [body, setBody] = useState('');
   const [isHtml, setIsHtml] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,7 +21,10 @@ export default function Home() {
 
     try {
       const payload: any = {
-        to: to.split(',').map((email) => email.trim()).filter(Boolean),
+        to: to
+          .split(',')
+          .map((email) => email.trim())
+          .filter(Boolean),
         subject,
         fromName: fromName.trim() || undefined,
       };
@@ -45,11 +51,10 @@ export default function Home() {
         setTo('');
         setSubject('');
         setBody('');
-        // Keep fromName for convenience
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to send email' });
       }
-    } catch (err) {
+    } catch {
       setMessage({ type: 'error', text: 'Network error. Please try again.' });
     } finally {
       setLoading(false);
@@ -59,7 +64,7 @@ export default function Home() {
   return (
     <div className="container">
       <h1>AWS BLASTER</h1>
-      <p className="subtitle">Powered by Amazon SES</p>
+      <p className="subtitle">Send HTML or plain email via Brevo</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
@@ -72,7 +77,7 @@ export default function Home() {
             placeholder="e.g. John from Acme, Alex Support"
           />
           <small style={{ color: '#888', fontSize: '0.8rem' }}>
-            This is the name the recipient will see
+            Name the recipient will see
           </small>
         </div>
 
@@ -84,8 +89,8 @@ export default function Home() {
             onChange={(e) => setTo(e.target.value)}
             placeholder="recipient@example.com, another@example.com"
             required
-            rows={4}
-            style={{ resize: 'vertical' }}
+            rows={3}
+            style={{ resize: 'vertical', minHeight: 80 }}
           />
           <small style={{ color: '#888', fontSize: '0.8rem' }}>
             Separate multiple emails with commas
@@ -105,9 +110,26 @@ export default function Home() {
         </div>
 
         <div className="form-group">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <label htmlFor="body" style={{ margin: 0 }}>Message</label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 6,
+            }}
+          >
+            <label htmlFor="body" style={{ margin: 0 }}>
+              Message
+            </label>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={isHtml}
@@ -120,25 +142,27 @@ export default function Home() {
             id="body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder={isHtml ? 'Paste your HTML here...' : 'Write your message here...'}
+            placeholder={
+              isHtml ? 'Paste your HTML here…' : 'Write your message here…'
+            }
             required
           />
         </div>
 
         <button type="submit" disabled={loading}>
-          {loading ? 'Sending...' : 'Send Email'}
+          {loading ? 'Sending…' : 'Send Email'}
         </button>
       </form>
 
       {message && (
-        <div className={`message ${message.type}`}>
-          {message.text}
-        </div>
+        <div className={`message ${message.type}`}>{message.text}</div>
       )}
 
       <div className="api-info">
-        <p>API Endpoint: <code>POST /api/send</code></p>
-        <p>Supports multiple recipients + HTML</p>
+        <p>
+          API: <code>POST /api/send</code>
+        </p>
+        <p>Use the menu for Inbox, Tools, and OTP</p>
       </div>
     </div>
   );
