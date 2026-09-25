@@ -67,7 +67,7 @@ export default function Home() {
   return (
     <div className="container">
       <h1>AWS BLASTER</h1>
-      <p className="subtitle">Send HTML or plain email via Gmail</p>
+      <p className="subtitle">Send HTML or plain email via Amazon SES</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
