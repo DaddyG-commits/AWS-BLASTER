@@ -1,4 +1,4 @@
-# AWS BLASTER
+# CryptoByt
 
 Email service powered by **Gmail SMTP** (Google App Password), deployed on **Vercel**.
 
