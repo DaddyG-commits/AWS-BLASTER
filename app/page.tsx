@@ -1,7 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
+
+function parseEmails(raw: string): string[] {
+  const list = raw
+    .split(/[,;\s\n]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.includes('@') && e.includes('.'));
+  return Array.from(new Set(list));
+}
 
 export default function Home() {
   const [to, setTo] = useState('');
@@ -19,18 +27,24 @@ export default function Home() {
     { recipient: string; success: boolean; error?: string }[]
   >([]);
 
+  const recipientCount = useMemo(() => parseEmails(to).length, [to]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
     setDetails([]);
 
+    const emails = parseEmails(to);
+    if (!emails.length) {
+      setMessage({ type: 'error', text: 'No valid emails found in the To box' });
+      setLoading(false);
+      return;
+    }
+
     try {
       const payload: Record<string, unknown> = {
-        to: to
-          .split(/[,;\s\n]+/)
-          .map((email) => email.trim())
-          .filter(Boolean),
+        to: emails,
         subject,
         fromName: fromName.trim() || undefined,
       };
@@ -54,15 +68,17 @@ export default function Home() {
       }
 
       if (res.ok && data.sent > 0) {
-        setMessage({
-          type: data.failed ? 'info' : 'success',
-          text: `Sent ${data.sent} · Failed ${data.failed} · Total ${data.total}`,
-        });
-        if (data.failed === 0) {
-          setTo('');
-          setSubject('');
-          setBody('');
+        let text = `Sent ${data.sent} · Failed ${data.failed} · Total ${data.total}`;
+        if (data.logged === false || data.database === false) {
+          text +=
+            ' · Inbox not logging yet (set DATABASE_URL + run schema.sql on Neon)';
         }
+        setMessage({
+          type: data.failed || data.logged === false ? 'info' : 'success',
+          text,
+        });
+        // Keep subject + HTML body so you can resend. Only clear To list.
+        setTo('');
       } else {
         setMessage({
           type: 'error',
@@ -97,18 +113,42 @@ export default function Home() {
         </div>
 
         <div className="form-group">
-          <label htmlFor="to">To Email(s)</label>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 6,
+            }}
+          >
+            <label htmlFor="to" style={{ margin: 0 }}>
+              To Email(s)
+            </label>
+            <span
+              style={{
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: recipientCount > 0 ? '#00d2ff' : '#888',
+                background: 'rgba(0, 210, 255, 0.12)',
+                border: '1px solid rgba(0, 210, 255, 0.25)',
+                padding: '3px 10px',
+                borderRadius: 999,
+              }}
+            >
+              {recipientCount} email{recipientCount === 1 ? '' : 's'}
+            </span>
+          </div>
           <textarea
             id="to"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            placeholder="recipient@example.com, another@example.com"
+            placeholder="Paste emails — one per line or comma-separated"
             required
-            rows={3}
-            style={{ resize: 'vertical', minHeight: 80 }}
+            rows={4}
+            style={{ resize: 'vertical', minHeight: 90 }}
           />
           <small style={{ color: '#888', fontSize: '0.8rem' }}>
-            Separate with commas or new lines — each is logged separately
+            Count updates as you paste. Duplicates are removed automatically.
           </small>
         </div>
 
@@ -207,8 +247,12 @@ export default function Home() {
           </div>
         )}
 
-        <button type="submit" disabled={loading}>
-          {loading ? 'Sending…' : 'Send Email'}
+        <button type="submit" disabled={loading || recipientCount === 0}>
+          {loading
+            ? `Sending ${recipientCount}…`
+            : recipientCount > 0
+              ? `Send ${recipientCount} email${recipientCount === 1 ? '' : 's'}`
+              : 'Send Email'}
         </button>
       </form>
 
