@@ -8,20 +8,16 @@ import {
 import { logEmail } from '../../../lib/store';
 
 function parseRecipients(to: unknown): string[] {
+  let list: string[] = [];
   if (Array.isArray(to)) {
-    return [...new Set(to.map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+    list = to.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
+  } else if (typeof to === 'string') {
+    list = to
+      .split(/[,;\s\n]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.includes('@'));
   }
-  if (typeof to === 'string') {
-    return [
-      ...new Set(
-        to
-          .split(/[,;\s\n]+/)
-          .map((e) => e.trim().toLowerCase())
-          .filter((e) => e.includes('@'))
-      ),
-    ];
-  }
-  return [];
+  return Array.from(new Set(list));
 }
 
 export async function POST(request: NextRequest) {
