@@ -1,32 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-
-const STORAGE_KEY = 'cryptobyt_customers';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 
 type Customer = {
   id: string;
   email: string;
   name: string;
   note: string;
-  emailedAt: string;
+  last_emailed_at: string;
+  send_count: number;
+  created_at?: string;
 };
-
-function loadCustomers(): Customer[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomers(list: Customer[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -34,15 +19,32 @@ export default function CustomersPage() {
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
     text: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    setCustomers(loadCustomers());
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/customers');
+      const data = await res.json();
+      setCustomers(data.customers || []);
+      if (data.warning || data.error) {
+        setMessage({ type: 'info', text: data.warning || data.error });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Could not load customers' });
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -50,51 +52,61 @@ export default function CustomersPage() {
     return customers.filter(
       (c) =>
         c.email.toLowerCase().includes(q) ||
-        c.name.toLowerCase().includes(q) ||
-        c.note.toLowerCase().includes(q)
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.note || '').toLowerCase().includes(q)
     );
   }, [customers, search]);
 
-  const persist = (next: Customer[]) => {
-    setCustomers(next);
-    saveCustomers(next);
-  };
-
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     const em = email.trim().toLowerCase();
     if (!em || !em.includes('@')) {
       setMessage({ type: 'error', text: 'Enter a valid email' });
       return;
     }
-    if (customers.some((c) => c.email === em)) {
-      setMessage({ type: 'error', text: 'This email is already in the list' });
-      return;
+
+    try {
+      const res = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: em, name: name.trim(), note: note.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.error || 'Failed' });
+        return;
+      }
+      setCustomers(data.customers || []);
+      setEmail('');
+      setName('');
+      setNote('');
+      setMessage({ type: 'success', text: 'Customer saved' });
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to add customer' });
     }
-
-    const entry: Customer = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      email: em,
-      name: name.trim(),
-      note: note.trim(),
-      emailedAt: new Date().toISOString(),
-    };
-
-    persist([entry, ...customers]);
-    setEmail('');
-    setName('');
-    setNote('');
-    setMessage({ type: 'success', text: 'Customer added' });
-    setTimeout(() => setMessage(null), 2000);
   };
 
-  const handleRemove = (id: string) => {
-    persist(customers.filter((c) => c.id !== id));
-  };
-
-  const handleClearAll = () => {
-    if (!confirm('Remove all customers from this list?')) return;
-    persist([]);
+  const handleSync = async () => {
+    setMessage({ type: 'info', text: 'Syncing from sent inbox…' });
+    try {
+      const res = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.error || 'Sync failed' });
+        return;
+      }
+      setCustomers(data.customers || []);
+      setMessage({
+        type: 'success',
+        text: data.message || `Synced (${data.added || 0} new)`,
+      });
+    } catch {
+      setMessage({ type: 'error', text: 'Sync failed' });
+    }
   };
 
   const copyEmails = async () => {
@@ -117,7 +129,7 @@ export default function CustomersPage() {
     <div className="container wide">
       <h1>Customers</h1>
       <p className="subtitle">
-        Track people you have already emailed (saved in this browser)
+        Auto-filled from successful sends · copy list to resend anytime
       </p>
 
       <form onSubmit={handleAdd}>
@@ -180,20 +192,35 @@ export default function CustomersPage() {
           type="button"
           className="secondary"
           style={{ width: 'auto', marginTop: 0, padding: '12px 16px' }}
+          onClick={handleSync}
+        >
+          Sync from sent inbox
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          style={{ width: 'auto', marginTop: 0, padding: '12px 16px' }}
           onClick={copyEmails}
           disabled={filtered.length === 0}
         >
           {copied ? 'Copied!' : 'Copy emails'}
         </button>
-        <button
-          type="button"
-          className="secondary danger"
-          style={{ width: 'auto', marginTop: 0, padding: '12px 16px' }}
-          onClick={handleClearAll}
-          disabled={customers.length === 0}
+        <Link
+          href="/"
+          style={{
+            display: 'inline-block',
+            padding: '12px 16px',
+            borderRadius: 8,
+            background: 'rgba(0, 210, 255, 0.15)',
+            border: '1px solid rgba(0, 210, 255, 0.35)',
+            color: '#00d2ff',
+            textDecoration: 'none',
+            fontWeight: 600,
+            fontSize: '0.9rem',
+          }}
         >
-          Clear all
-        </button>
+          Resend on Send page
+        </Link>
       </div>
 
       <div className="stats-row" style={{ marginBottom: 12 }}>
@@ -203,49 +230,28 @@ export default function CustomersPage() {
         )}
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <p className="muted">Loading…</p>
+      ) : filtered.length === 0 ? (
         <p className="muted">
           {customers.length === 0
-            ? 'No customers yet. Add emails you have already contacted.'
+            ? 'No customers yet. Click “Sync from sent inbox” or send a new email.'
             : 'No matches for your search.'}
         </p>
       ) : (
         <div className="list">
           {filtered.map((c) => (
             <div key={c.id} className="list-item">
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <strong>{c.email}</strong>
-                  {c.name && (
-                    <span style={{ color: '#ccc', marginLeft: 8 }}>
-                      {c.name}
-                    </span>
-                  )}
-                  <div className="list-meta">
-                    Added {formatDate(c.emailedAt)}
-                    {c.note ? ` · ${c.note}` : ''}
-                  </div>
+              <div>
+                <strong>{c.email}</strong>
+                {c.name && (
+                  <span style={{ color: '#ccc', marginLeft: 8 }}>{c.name}</span>
+                )}
+                <span className="badge sent">{c.send_count || 1} sends</span>
+                <div className="list-meta">
+                  Last emailed {formatDate(c.last_emailed_at)}
+                  {c.note ? ` · ${c.note}` : ''}
                 </div>
-                <button
-                  type="button"
-                  className="secondary danger"
-                  style={{
-                    width: 'auto',
-                    marginTop: 0,
-                    padding: '6px 12px',
-                    fontSize: '0.8rem',
-                  }}
-                  onClick={() => handleRemove(c.id)}
-                >
-                  Remove
-                </button>
               </div>
             </div>
           ))}
@@ -254,8 +260,8 @@ export default function CustomersPage() {
 
       <div className="api-info">
         <p>
-          Data stays in your browser (localStorage). Clearing site data will
-          remove this list.
+          Customers are stored in Neon. Successful sends add them automatically.
+          Use <strong>Sync from sent inbox</strong> once to import past recipients.
         </p>
       </div>
     </div>
