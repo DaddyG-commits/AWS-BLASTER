@@ -5,7 +5,10 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 const LINKS = [
+  { href: '/dashboard', label: 'Dashboard' },
   { href: '/', label: 'Send Email' },
+  { href: '/campaigns', label: 'Campaigns' },
+  { href: '/inbox', label: 'Sent Inbox' },
   { href: '/extractor', label: 'Email Extractor' },
   { href: '/customers', label: 'Customers' },
   { href: '/tools', label: 'Validator' },
@@ -34,7 +37,7 @@ export default function Nav() {
 
   return (
     <div className="nav-bar" ref={ref}>
-      <Link href="/" className="nav-brand">
+      <Link href="/dashboard" className="nav-brand">
         CryptoByt
       </Link>
       <div className="nav-dropdown">
