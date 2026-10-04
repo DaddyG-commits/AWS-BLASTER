@@ -20,7 +20,6 @@ body {
   min-height: calc(100vh - 64px);
 }
 
-/* —— Nav —— */
 .nav-bar {
   display: flex;
   align-items: center;
@@ -110,7 +109,6 @@ body {
   font-weight: 600;
 }
 
-/* —— Cards —— */
 .container {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(10px);
@@ -123,7 +121,7 @@ body {
 }
 
 .container.wide {
-  max-width: 720px;
+  max-width: 960px;
 }
 
 h1 {
@@ -260,7 +258,6 @@ button.danger {
   color: #00d2ff;
 }
 
-/* —— Quota —— */
 .quota-card {
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -299,7 +296,6 @@ button.danger {
   background: linear-gradient(90deg, #ff5252, #c62828);
 }
 
-/* —— Lists —— */
 .list {
   display: flex;
   flex-direction: column;
@@ -362,7 +358,6 @@ button.danger {
   color: #80deea;
 }
 
-/* —— Tools —— */
 .tools-grid {
   display: grid;
   gap: 20px;
@@ -434,7 +429,6 @@ button.danger {
   margin-top: 0;
 }
 
-/* —— HTML Preview —— */
 .html-preview-frame {
   background: #fff;
   border-radius: 8px;
@@ -458,4 +452,107 @@ button.danger {
   color: #666;
   font-size: 0.9rem;
   background: #f5f5f5;
+}
+
+/* LeadBot-style stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+@media (min-width: 700px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.stat-card {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+}
+
+.stat-card.ok {
+  border-color: rgba(0, 200, 83, 0.35);
+}
+
+.stat-card.bad {
+  border-color: rgba(255, 82, 82, 0.35);
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #00d2ff;
+}
+
+.stat-card.ok .stat-value {
+  color: #69f0ae;
+}
+
+.stat-card.bad .stat-value {
+  color: #ff8a80;
+}
+
+.stat-label {
+  font-size: 0.78rem;
+  color: #999;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.filter-bar select,
+.filter-bar input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.data-table th,
+.data-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.data-table th {
+  background: rgba(0, 0, 0, 0.35);
+  color: #aaa;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.data-table tr:hover td {
+  background: rgba(0, 210, 255, 0.06);
+}
+
+.err-cell {
+  max-width: 200px;
+  color: #ff8a80;
+  font-size: 0.78rem;
+  word-break: break-word;
 }
