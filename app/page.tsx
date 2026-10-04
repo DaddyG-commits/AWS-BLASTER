@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 
 function parseEmails(raw: string): string[] {
@@ -24,23 +24,39 @@ export default function Home() {
     text: string;
   } | null>(null);
   const [details, setDetails] = useState<
-    { recipient: string; success: boolean; error?: string }[]
+    { recipient: string; success: boolean; error?: string; skipped?: boolean }[]
   >([]);
+
+  // Synchronous lock — state alone is too slow to stop double-clicks
+  const sendingRef = useRef(false);
 
   const recipientCount = useMemo(() => parseEmails(to).length, [to]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setMessage(null);
-    setDetails([]);
+    e.stopPropagation();
+
+    if (sendingRef.current) {
+      setMessage({
+        type: 'info',
+        text: 'Already sending — wait for this batch to finish',
+      });
+      return;
+    }
 
     const emails = parseEmails(to);
     if (!emails.length) {
       setMessage({ type: 'error', text: 'No valid emails found in the To box' });
-      setLoading(false);
       return;
     }
+
+    sendingRef.current = true;
+    setLoading(true);
+    setMessage({
+      type: 'info',
+      text: `Sending ${emails.length} email${emails.length === 1 ? '' : 's'}… do not click again`,
+    });
+    setDetails([]);
 
     try {
       const payload: Record<string, unknown> = {
@@ -67,17 +83,18 @@ export default function Home() {
         setDetails(data.results);
       }
 
-      if (res.ok && data.sent > 0) {
-        let text = `Sent ${data.sent} · Failed ${data.failed} · Total ${data.total}`;
+      if (res.ok && (data.sent > 0 || data.skipped > 0)) {
+        let text = `Sent ${data.sent || 0}`;
+        if (data.skipped) text += ` · Skipped ${data.skipped} (already sent)`;
+        text += ` · Failed ${data.failed || 0} · Total ${data.total}`;
         if (data.logged === false || data.database === false) {
           text +=
             ' · Inbox not logging yet (set DATABASE_URL + run schema.sql on Neon)';
         }
         setMessage({
-          type: data.failed || data.logged === false ? 'info' : 'success',
+          type: data.failed ? 'info' : 'success',
           text,
         });
-        // Keep subject + HTML body so you can resend. Only clear To list.
         setTo('');
       } else {
         setMessage({
@@ -88,6 +105,7 @@ export default function Home() {
     } catch {
       setMessage({ type: 'error', text: 'Failed to send email' });
     } finally {
+      sendingRef.current = false;
       setLoading(false);
     }
   };
@@ -106,6 +124,7 @@ export default function Home() {
             value={fromName}
             onChange={(e) => setFromName(e.target.value)}
             placeholder="e.g. John from Acme, Alex Support"
+            disabled={loading}
           />
           <small style={{ color: '#888', fontSize: '0.8rem' }}>
             Name the recipient will see
@@ -146,9 +165,11 @@ export default function Home() {
             required
             rows={4}
             style={{ resize: 'vertical', minHeight: 90 }}
+            disabled={loading}
           />
           <small style={{ color: '#888', fontSize: '0.8rem' }}>
-            Count updates as you paste. Duplicates are removed automatically.
+            Count updates as you paste. Duplicates are removed. Same subject to same
+            person within 30 min is skipped (protects daily limit).
           </small>
         </div>
 
@@ -161,6 +182,7 @@ export default function Home() {
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Email subject"
             required
+            disabled={loading}
           />
         </div>
 
@@ -192,6 +214,7 @@ export default function Home() {
                   type="checkbox"
                   checked={isHtml}
                   onChange={(e) => setIsHtml(e.target.checked)}
+                  disabled={loading}
                 />
                 HTML Mode
               </label>
@@ -209,6 +232,7 @@ export default function Home() {
                     type="checkbox"
                     checked={showPreview}
                     onChange={(e) => setShowPreview(e.target.checked)}
+                    disabled={loading}
                   />
                   Preview
                 </label>
@@ -224,6 +248,7 @@ export default function Home() {
             }
             required
             rows={isHtml && showPreview ? 10 : 8}
+            disabled={loading}
           />
         </div>
 
@@ -249,7 +274,7 @@ export default function Home() {
 
         <button type="submit" disabled={loading || recipientCount === 0}>
           {loading
-            ? `Sending ${recipientCount}…`
+            ? `Sending ${recipientCount}… please wait`
             : recipientCount > 0
               ? `Send ${recipientCount} email${recipientCount === 1 ? '' : 's'}`
               : 'Send Email'}
@@ -265,8 +290,12 @@ export default function Home() {
           {details.map((d) => (
             <div key={d.recipient} className="list-item">
               <strong>{d.recipient}</strong>
-              <span className={`badge ${d.success ? 'sent' : 'error'}`}>
-                {d.success ? 'sent' : 'failed'}
+              <span
+                className={`badge ${
+                  d.skipped ? 'deferred' : d.success ? 'sent' : 'error'
+                }`}
+              >
+                {d.skipped ? 'skipped' : d.success ? 'sent' : 'failed'}
               </span>
               {d.error && <div className="list-meta">{d.error}</div>}
             </div>
@@ -287,6 +316,9 @@ export default function Home() {
           <Link href="/campaigns" style={{ color: '#00d2ff' }}>
             Campaigns
           </Link>
+        </p>
+        <p style={{ marginTop: 8 }}>
+          Gmail free accounts: ~500 sends/day. Do not click Send twice.
         </p>
       </div>
     </div>
