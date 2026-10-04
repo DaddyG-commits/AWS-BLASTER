@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 type Email = {
   id: string;
@@ -43,7 +43,7 @@ export default function InboxPage() {
       if (status !== 'all') params.set('status', status);
       if (type !== 'all') params.set('type', type);
       if (q.trim()) params.set('q', q.trim());
-      params.set('limit', '500');
+      params.set('limit', '2000');
 
       const [emailsRes, statsRes] = await Promise.all([
         fetch(`/api/emails?${params}`),
@@ -66,67 +66,45 @@ export default function InboxPage() {
     load();
   }, [load]);
 
-  // Fallback: if API stats are zero but we have rows, count from loaded list
-  const displayStats = useMemo(() => {
-    const list = emails;
-    const fromList = {
-      total: list.length,
-      sent: list.filter((e) => e.status?.toLowerCase() === 'sent').length,
-      failed: list.filter((e) => e.status?.toLowerCase() === 'failed').length,
-      otp: list.filter((e) => e.message_type?.toLowerCase() === 'otp').length,
-      email: list.filter((e) => e.message_type?.toLowerCase() === 'email').length,
-      today: list.filter((e) => {
-        const d = new Date(e.created_at);
-        const now = new Date();
-        return d.toDateString() === now.toDateString();
-      }).length,
-    };
-
-    if (!stats) return fromList;
-
-    // Prefer API when it has real totals; otherwise use list counts for visible cards
-    if ((stats.total || 0) > 0) {
-      return {
-        total: stats.total,
-        sent: stats.sent,
-        failed: stats.failed,
-        otp: stats.otp,
-        email: stats.email,
-        today: stats.today,
-      };
-    }
-
-    return fromList;
-  }, [stats, emails]);
+  const display = stats || {
+    total: 0,
+    sent: 0,
+    failed: 0,
+    otp: 0,
+    email: 0,
+    today: 0,
+  };
 
   return (
     <div className="container wide">
       <h1>Sent inbox</h1>
-      <p className="subtitle">Every send and failure logged with counts</p>
+      <p className="subtitle">
+        Full database counts · list shows up to 2000 newest rows
+      </p>
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-value">{displayStats.total}</div>
+          <div className="stat-value">{display.total}</div>
           <div className="stat-label">Total</div>
         </div>
         <div className="stat-card ok">
-          <div className="stat-value">{displayStats.sent}</div>
+          <div className="stat-value">{display.sent}</div>
           <div className="stat-label">Sent</div>
         </div>
         <div className="stat-card bad">
-          <div className="stat-value">{displayStats.failed}</div>
+          <div className="stat-value">{display.failed}</div>
           <div className="stat-label">Failed</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{displayStats.today}</div>
+          <div className="stat-value">{display.today}</div>
           <div className="stat-label">Today</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{displayStats.otp}</div>
+          <div className="stat-value">{display.otp}</div>
           <div className="stat-label">OTP</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{displayStats.email}</div>
+          <div className="stat-value">{display.email}</div>
           <div className="stat-label">Email</div>
         </div>
       </div>
