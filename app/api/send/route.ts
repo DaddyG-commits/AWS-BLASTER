@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import {
   formatMailError,
   getMailConfig,
@@ -7,6 +8,7 @@ import {
 } from '../../../lib/mail';
 import { logEmail } from '../../../lib/store';
 import { getSql, hasDatabase } from '../../../lib/db';
+import { injectOpenPixel } from '../../../lib/tracking';
 
 function parseRecipients(to: unknown): string[] {
   let list: string[] = [];
@@ -21,7 +23,6 @@ function parseRecipients(to: unknown): string[] {
   return Array.from(new Set(list));
 }
 
-/** Prevent accidental double-send of same recipient+subject within 30 minutes */
 async function wasRecentlySent(recipient: string, subject: string): Promise<boolean> {
   if (!hasDatabase()) return false;
   try {
@@ -30,7 +31,7 @@ async function wasRecentlySent(recipient: string, subject: string): Promise<bool
       SELECT id FROM emails
       WHERE lower(recipient) = ${recipient.toLowerCase()}
         AND subject = ${subject}
-        AND lower(trim(status)) = 'sent'
+        AND lower(trim(status)) IN ('sent', 'delivered', 'opened')
         AND created_at > NOW() - INTERVAL '30 minutes'
       LIMIT 1
     `;
@@ -49,7 +50,6 @@ export async function POST(request: NextRequest) {
     const html = body.html ? String(body.html) : undefined;
     const fromName = body.fromName ? String(body.fromName).trim() : undefined;
     const campaignId = body.campaignId ? String(body.campaignId) : undefined;
-    // Allow forced resend if client sets force: true
     const force = Boolean(body.force);
 
     if (!recipients.length || !subject || (!text && !html)) {
@@ -72,7 +72,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Soft safety: warn if batch is huge (Gmail ~500/day)
     if (recipients.length > 200 && !force) {
       return NextResponse.json(
         {
@@ -90,9 +89,11 @@ export async function POST(request: NextRequest) {
       recipient: string;
       success: boolean;
       messageId?: string;
+      emailId?: string;
       error?: string;
       logged?: boolean;
       skipped?: boolean;
+      status?: string;
     }[] = [];
     let loggedCount = 0;
     let skipped = 0;
@@ -114,12 +115,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const emailId = randomUUID();
+      // HTML gets open-tracking pixel keyed to this row id
+      const trackedHtml = html ? injectOpenPixel(html, emailId) : undefined;
+
       try {
         const info = await sendMail({
           to: recipient,
           subject,
           text,
-          html,
+          html: trackedHtml || html,
           fromName,
         });
         const messageId = info.messageId || `sent-${Date.now()}`;
@@ -127,13 +132,14 @@ export async function POST(request: NextRequest) {
         if (dbReady) {
           try {
             const id = await logEmail({
+              id: emailId,
               sender,
               recipient,
               subject,
               text,
-              html,
+              html: trackedHtml || html,
               messageType: 'email',
-              status: 'sent',
+              status: 'delivered',
               messageId,
               campaignId,
             });
@@ -143,18 +149,26 @@ export async function POST(request: NextRequest) {
             console.error('logEmail sent failed', dbErr);
           }
         }
-        results.push({ recipient, success: true, messageId, logged });
+        results.push({
+          recipient,
+          success: true,
+          messageId,
+          emailId,
+          logged,
+          status: 'delivered',
+        });
       } catch (error) {
         const errMsg = formatMailError(error);
         let logged = false;
         if (dbReady) {
           try {
             const id = await logEmail({
+              id: emailId,
               sender,
               recipient,
               subject,
               text,
-              html,
+              html: trackedHtml || html,
               messageType: 'email',
               status: 'failed',
               error: errMsg,
@@ -166,7 +180,14 @@ export async function POST(request: NextRequest) {
             console.error('logEmail failed', dbErr);
           }
         }
-        results.push({ recipient, success: false, error: errMsg, logged });
+        results.push({
+          recipient,
+          success: false,
+          error: errMsg,
+          logged,
+          emailId,
+          status: 'failed',
+        });
       }
     }
 
@@ -203,9 +224,10 @@ export async function GET() {
       otp: 'POST /api/otp',
       emails: 'GET /api/emails',
       stats: 'GET /api/stats',
+      trackOpen: 'GET /api/track/open?id=',
     },
     requiredEnv: ['SMTP_USER', 'SMTP_PASS'],
-    optionalEnv: ['MAIL_FROM', 'MAIL_FROM_NAME', 'DATABASE_URL'],
+    optionalEnv: ['MAIL_FROM', 'MAIL_FROM_NAME', 'DATABASE_URL', 'APP_URL'],
     configured: isMailConfigured(),
     database: hasDatabase(),
   });
