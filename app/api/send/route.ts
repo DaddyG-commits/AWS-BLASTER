@@ -6,6 +6,7 @@ import {
   sendMail,
 } from '../../../lib/mail';
 import { logEmail } from '../../../lib/store';
+import { hasDatabase } from '../../../lib/db';
 
 function parseRecipients(to: unknown): string[] {
   let list: string[] = [];
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const dbReady = hasDatabase();
     const cfg = getMailConfig();
     const sender = cfg.fromEmail || cfg.user;
     const results: {
@@ -57,9 +59,12 @@ export async function POST(request: NextRequest) {
       success: boolean;
       messageId?: string;
       error?: string;
+      logged?: boolean;
     }[] = [];
+    let loggedCount = 0;
 
-    for (const recipient of recipients) {
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
       try {
         const info = await sendMail({
           to: recipient,
@@ -69,40 +74,50 @@ export async function POST(request: NextRequest) {
           fromName,
         });
         const messageId = info.messageId || `sent-${Date.now()}`;
-        try {
-          await logEmail({
-            sender,
-            recipient,
-            subject,
-            text,
-            html,
-            messageType: 'email',
-            status: 'sent',
-            messageId,
-            campaignId,
-          });
-        } catch (dbErr) {
-          console.error('logEmail sent failed', dbErr);
+        let logged = false;
+        if (dbReady) {
+          try {
+            const id = await logEmail({
+              sender,
+              recipient,
+              subject,
+              text,
+              html,
+              messageType: 'email',
+              status: 'sent',
+              messageId,
+              campaignId,
+            });
+            logged = Boolean(id);
+            if (logged) loggedCount++;
+          } catch (dbErr) {
+            console.error('logEmail sent failed', dbErr);
+          }
         }
-        results.push({ recipient, success: true, messageId });
+        results.push({ recipient, success: true, messageId, logged });
       } catch (error) {
         const errMsg = formatMailError(error);
-        try {
-          await logEmail({
-            sender,
-            recipient,
-            subject,
-            text,
-            html,
-            messageType: 'email',
-            status: 'failed',
-            error: errMsg,
-            campaignId,
-          });
-        } catch (dbErr) {
-          console.error('logEmail failed', dbErr);
+        let logged = false;
+        if (dbReady) {
+          try {
+            const id = await logEmail({
+              sender,
+              recipient,
+              subject,
+              text,
+              html,
+              messageType: 'email',
+              status: 'failed',
+              error: errMsg,
+              campaignId,
+            });
+            logged = Boolean(id);
+            if (logged) loggedCount++;
+          } catch (dbErr) {
+            console.error('logEmail failed', dbErr);
+          }
         }
-        results.push({ recipient, success: false, error: errMsg });
+        results.push({ recipient, success: false, error: errMsg, logged });
       }
     }
 
@@ -115,6 +130,9 @@ export async function POST(request: NextRequest) {
       sent,
       failed,
       results,
+      database: dbReady,
+      logged: dbReady && loggedCount > 0,
+      loggedCount,
       message: `Sent ${sent} of ${results.length}`,
     });
   } catch (error: unknown) {
@@ -139,5 +157,6 @@ export async function GET() {
     requiredEnv: ['SMTP_USER', 'SMTP_PASS'],
     optionalEnv: ['MAIL_FROM', 'MAIL_FROM_NAME', 'DATABASE_URL'],
     configured: isMailConfigured(),
+    database: hasDatabase(),
   });
 }
