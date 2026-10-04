@@ -25,7 +25,7 @@ Email service powered by **Gmail SMTP** (Google App Password), deployed on **Ver
 SMTP_USER=lawofficeclientdesk@gmail.com
 SMTP_PASS=xxxx xxxx xxxx xxxx
 MAIL_FROM=lawofficeclientdesk@gmail.com
-MAIL_FROM_NAME=AWS BLASTER
+MAIL_FROM_NAME=CryptoByt
 ```
 
 Spaces in the App Password are fine (stripped automatically).
