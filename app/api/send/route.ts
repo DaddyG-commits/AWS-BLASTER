@@ -8,7 +8,11 @@ import {
 } from '../../../lib/mail';
 import { logEmail } from '../../../lib/store';
 import { getSql, hasDatabase } from '../../../lib/db';
-import { injectOpenPixel } from '../../../lib/tracking';
+import {
+  injectClickTracking,
+  injectOpenPixel,
+  getAppBaseUrl,
+} from '../../../lib/tracking';
 
 function parseRecipients(to: unknown): string[] {
   let list: string[] = [];
@@ -39,6 +43,13 @@ async function wasRecentlySent(recipient: string, subject: string): Promise<bool
   } catch {
     return false;
   }
+}
+
+function prepareTrackedHtml(html: string | undefined, emailId: string) {
+  if (!html) return undefined;
+  let out = injectOpenPixel(html, emailId);
+  out = injectClickTracking(out, emailId);
+  return out;
 }
 
 export async function POST(request: NextRequest) {
@@ -94,6 +105,7 @@ export async function POST(request: NextRequest) {
       logged?: boolean;
       skipped?: boolean;
       status?: string;
+      trackPixel?: string;
     }[] = [];
     let loggedCount = 0;
     let skipped = 0;
@@ -116,8 +128,8 @@ export async function POST(request: NextRequest) {
       }
 
       const emailId = randomUUID();
-      // HTML gets open-tracking pixel keyed to this row id
-      const trackedHtml = html ? injectOpenPixel(html, emailId) : undefined;
+      const trackedHtml = prepareTrackedHtml(html, emailId);
+      const trackPixel = `${getAppBaseUrl()}/api/track/open?id=${emailId}`;
 
       try {
         const info = await sendMail({
@@ -156,6 +168,7 @@ export async function POST(request: NextRequest) {
           emailId,
           logged,
           status: 'delivered',
+          trackPixel,
         });
       } catch (error) {
         const errMsg = formatMailError(error);
@@ -204,6 +217,7 @@ export async function POST(request: NextRequest) {
       database: dbReady,
       logged: dbReady && loggedCount > 0,
       loggedCount,
+      appUrl: getAppBaseUrl(),
       message: `Sent ${sent} · Skipped ${skipped} · Failed ${failed} · Total ${results.length}`,
     });
   } catch (error: unknown) {
@@ -219,12 +233,14 @@ export async function GET() {
   return NextResponse.json({
     status: 'ok',
     service: 'AWS BLASTER - Gmail SMTP',
+    appUrl: getAppBaseUrl(),
     endpoints: {
       send: 'POST /api/send',
       otp: 'POST /api/otp',
       emails: 'GET /api/emails',
       stats: 'GET /api/stats',
       trackOpen: 'GET /api/track/open?id=',
+      trackClick: 'GET /api/track/click?id=&u=',
     },
     requiredEnv: ['SMTP_USER', 'SMTP_PASS'],
     optionalEnv: ['MAIL_FROM', 'MAIL_FROM_NAME', 'DATABASE_URL', 'APP_URL'],
