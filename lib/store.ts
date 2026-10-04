@@ -38,16 +38,15 @@ export type CustomerRow = {
 };
 
 function n(v: unknown): number {
-  if (typeof v === 'number' && !Number.isNaN(v)) return v;
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === 'bigint') return Number(v);
   if (typeof v === 'string') {
     const x = parseInt(v, 10);
     return Number.isNaN(x) ? 0 : x;
   }
-  if (v && typeof v === 'object' && 'valueOf' in v) {
-    const x = Number((v as any).valueOf());
-    return Number.isNaN(x) ? 0 : x;
-  }
-  return 0;
+  if (v == null) return 0;
+  const x = Number(v);
+  return Number.isFinite(x) ? Math.trunc(x) : 0;
 }
 
 export async function logEmail(opts: {
@@ -84,7 +83,6 @@ export async function logEmail(opts: {
     )
   `;
 
-  // Auto-add successful recipients as customers for future resend
   if (opts.status === 'sent') {
     try {
       await upsertCustomer(opts.recipient, {
@@ -107,7 +105,7 @@ export async function listEmails(opts?: {
 }): Promise<EmailRow[]> {
   if (!hasDatabase()) return [];
   const sql = getSql();
-  const limit = Math.min(opts?.limit || 100, 500);
+  const limit = Math.min(Math.max(opts?.limit || 200, 1), 2000);
   const offset = opts?.offset || 0;
   const status = opts?.status || '';
   const type = opts?.type || '';
@@ -180,30 +178,66 @@ export async function getStats(): Promise<EmailStats> {
 
   try {
     const sql = getSql();
+    const rows = await sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'sent' THEN 1 ELSE 0 END), 0)::int AS sent,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'failed' THEN 1 ELSE 0 END), 0)::int AS failed,
+        COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'otp' THEN 1 ELSE 0 END), 0)::int AS otp,
+        COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'email' THEN 1 ELSE 0 END), 0)::int AS email,
+        COALESCE(SUM(CASE WHEN created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'sent' AND created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today_sent,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'failed' AND created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today_failed
+      FROM emails
+    `;
 
-    // Simple separate counts (more reliable than FILTER with some drivers)
-    const totalR = await sql`SELECT COUNT(*) AS c FROM emails`;
-    const sentR = await sql`SELECT COUNT(*) AS c FROM emails WHERE lower(status) = 'sent'`;
-    const failedR = await sql`SELECT COUNT(*) AS c FROM emails WHERE lower(status) = 'failed'`;
-    const otpR = await sql`SELECT COUNT(*) AS c FROM emails WHERE lower(message_type) = 'otp'`;
-    const emailR = await sql`SELECT COUNT(*) AS c FROM emails WHERE lower(message_type) = 'email'`;
-    const todayR = await sql`SELECT COUNT(*) AS c FROM emails WHERE created_at >= date_trunc('day', NOW())`;
-    const todaySentR = await sql`SELECT COUNT(*) AS c FROM emails WHERE lower(status) = 'sent' AND created_at >= date_trunc('day', NOW())`;
-    const todayFailedR = await sql`SELECT COUNT(*) AS c FROM emails WHERE lower(status) = 'failed' AND created_at >= date_trunc('day', NOW())`;
-
+    const r = (rows as any[])[0] || {};
     return {
-      total: n((totalR as any)[0]?.c),
-      sent: n((sentR as any)[0]?.c),
-      failed: n((failedR as any)[0]?.c),
-      otp: n((otpR as any)[0]?.c),
-      email: n((emailR as any)[0]?.c),
-      today: n((todayR as any)[0]?.c),
-      todaySent: n((todaySentR as any)[0]?.c),
-      todayFailed: n((todayFailedR as any)[0]?.c),
+      total: n(r.total),
+      sent: n(r.sent),
+      failed: n(r.failed),
+      otp: n(r.otp),
+      email: n(r.email),
+      today: n(r.today),
+      todaySent: n(r.today_sent),
+      todayFailed: n(r.today_failed),
     };
   } catch (e) {
     console.error('getStats error', e);
-    return empty;
+    // Fallback: count from a large fetch if aggregate fails
+    try {
+      const sql = getSql();
+      const all = (await sql`SELECT status, message_type, created_at FROM emails`) as {
+        status: string;
+        message_type: string;
+        created_at: string;
+      }[];
+      const now = new Date();
+      const isToday = (iso: string) => {
+        try {
+          return new Date(iso).toDateString() === now.toDateString();
+        } catch {
+          return false;
+        }
+      };
+      return {
+        total: all.length,
+        sent: all.filter((e) => e.status?.toLowerCase().trim() === 'sent').length,
+        failed: all.filter((e) => e.status?.toLowerCase().trim() === 'failed').length,
+        otp: all.filter((e) => e.message_type?.toLowerCase().trim() === 'otp').length,
+        email: all.filter((e) => e.message_type?.toLowerCase().trim() === 'email').length,
+        today: all.filter((e) => isToday(e.created_at)).length,
+        todaySent: all.filter(
+          (e) => e.status?.toLowerCase().trim() === 'sent' && isToday(e.created_at)
+        ).length,
+        todayFailed: all.filter(
+          (e) => e.status?.toLowerCase().trim() === 'failed' && isToday(e.created_at)
+        ).length,
+      };
+    } catch (e2) {
+      console.error('getStats fallback error', e2);
+      return empty;
+    }
   }
 }
 
@@ -259,29 +293,30 @@ export async function listCustomers(q?: string): Promise<CustomerRow[]> {
       SELECT * FROM customers
       WHERE email ILIKE ${pattern} OR name ILIKE ${pattern} OR note ILIKE ${pattern}
       ORDER BY last_emailed_at DESC
-      LIMIT 1000
+      LIMIT 2000
     `) as CustomerRow[];
   }
   return (await sql`
-    SELECT * FROM customers ORDER BY last_emailed_at DESC LIMIT 1000
+    SELECT * FROM customers ORDER BY last_emailed_at DESC LIMIT 2000
   `) as CustomerRow[];
 }
 
-/** Backfill customers from existing sent emails */
 export async function syncCustomersFromEmails(): Promise<number> {
   if (!hasDatabase()) return 0;
   const sql = getSql();
   const rows = (await sql`
     SELECT DISTINCT ON (lower(recipient)) recipient, subject, created_at
     FROM emails
-    WHERE lower(status) = 'sent'
+    WHERE lower(trim(status)) = 'sent'
     ORDER BY lower(recipient), created_at DESC
   `) as { recipient: string; subject: string; created_at: string }[];
 
   let added = 0;
   for (const r of rows) {
     try {
-      const before = (await sql`SELECT id FROM customers WHERE email = ${r.recipient.toLowerCase()} LIMIT 1`) as any[];
+      const before = (await sql`
+        SELECT id FROM customers WHERE email = ${r.recipient.toLowerCase()} LIMIT 1
+      `) as any[];
       await upsertCustomer(r.recipient, {
         note: r.subject ? `Last: ${String(r.subject).slice(0, 80)}` : '',
       });
