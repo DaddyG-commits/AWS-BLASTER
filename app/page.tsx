@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 
 export default function Home() {
   const [to, setTo] = useState('');
@@ -11,19 +12,23 @@ export default function Home() {
   const [showPreview, setShowPreview] = useState(true);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
     text: string;
   } | null>(null);
+  const [details, setDetails] = useState<
+    { recipient: string; success: boolean; error?: string }[]
+  >([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+    setDetails([]);
 
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         to: to
-          .split(',')
+          .split(/[,;\s\n]+/)
           .map((email) => email.trim())
           .filter(Boolean),
         subject,
@@ -44,18 +49,24 @@ export default function Home() {
 
       const data = await res.json();
 
-      if (res.ok) {
+      if (data.results) {
+        setDetails(data.results);
+      }
+
+      if (res.ok && data.sent > 0) {
         setMessage({
-          type: 'success',
-          text: 'Email sent successfully',
+          type: data.failed ? 'info' : 'success',
+          text: `Sent ${data.sent} · Failed ${data.failed} · Total ${data.total}`,
         });
-        setTo('');
-        setSubject('');
-        setBody('');
+        if (data.failed === 0) {
+          setTo('');
+          setSubject('');
+          setBody('');
+        }
       } else {
         setMessage({
           type: 'error',
-          text: data.error || 'Failed to send email',
+          text: data.error || data.message || 'Failed to send email',
         });
       }
     } catch {
@@ -68,7 +79,7 @@ export default function Home() {
   return (
     <div className={`container ${isHtml && showPreview ? 'wide' : ''}`}>
       <h1>CryptoByt</h1>
-      <p className="subtitle">Send HTML or plain email via Gmail</p>
+      <p className="subtitle">Send HTML or plain email · logged to inbox</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
@@ -97,7 +108,7 @@ export default function Home() {
             style={{ resize: 'vertical', minHeight: 80 }}
           />
           <small style={{ color: '#888', fontSize: '0.8rem' }}>
-            Separate multiple emails with commas
+            Separate with commas or new lines — each is logged separately
           </small>
         </div>
 
@@ -205,8 +216,34 @@ export default function Home() {
         <div className={`message ${message.type}`}>{message.text}</div>
       )}
 
+      {details.length > 0 && (
+        <div className="list" style={{ marginTop: 14 }}>
+          {details.map((d) => (
+            <div key={d.recipient} className="list-item">
+              <strong>{d.recipient}</strong>
+              <span className={`badge ${d.success ? 'sent' : 'error'}`}>
+                {d.success ? 'sent' : 'failed'}
+              </span>
+              {d.error && <div className="list-meta">{d.error}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="api-info">
-        <p>Use the menu for Extractor, Customers, Validator, and OTP</p>
+        <p>
+          <Link href="/inbox" style={{ color: '#00d2ff' }}>
+            Open Sent Inbox
+          </Link>
+          {' · '}
+          <Link href="/dashboard" style={{ color: '#00d2ff' }}>
+            Dashboard
+          </Link>
+          {' · '}
+          <Link href="/campaigns" style={{ color: '#00d2ff' }}>
+            Campaigns
+          </Link>
+        </p>
       </div>
     </div>
   );
