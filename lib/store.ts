@@ -14,12 +14,17 @@ export type EmailRow = {
   message_id: string | null;
   campaign_id: string | null;
   created_at: string;
+  delivered_at?: string | null;
+  opened_at?: string | null;
+  open_count?: number | null;
 };
 
 export type EmailStats = {
   total: number;
   sent: number;
   failed: number;
+  delivered: number;
+  opened: number;
   otp: number;
   email: number;
   today: number;
@@ -50,50 +55,113 @@ function n(v: unknown): number {
 }
 
 export async function logEmail(opts: {
+  id?: string;
   sender: string;
   recipient: string;
   subject: string;
   text?: string;
   html?: string;
   messageType?: string;
-  status: 'sent' | 'failed';
+  status: 'sent' | 'failed' | 'delivered' | 'opened';
   error?: string;
   messageId?: string;
   campaignId?: string;
 }) {
   if (!hasDatabase()) return null;
   const sql = getSql();
-  const id = randomUUID();
-  await sql`
-    INSERT INTO emails (
-      id, sender, recipient, subject, text_body, html_body,
-      message_type, status, error_message, message_id, campaign_id
-    ) VALUES (
-      ${id},
-      ${opts.sender},
-      ${opts.recipient},
-      ${opts.subject},
-      ${opts.text || null},
-      ${opts.html || null},
-      ${opts.messageType || 'email'},
-      ${opts.status},
-      ${opts.error || null},
-      ${opts.messageId || null},
-      ${opts.campaignId || null}
-    )
-  `;
+  const id = opts.id || randomUUID();
+  const delivered =
+    opts.status === 'sent' || opts.status === 'delivered' || opts.status === 'opened'
+      ? true
+      : false;
 
-  if (opts.status === 'sent') {
+  // Prefer columns with tracking fields; fall back if migration not run yet
+  try {
+    await sql`
+      INSERT INTO emails (
+        id, sender, recipient, subject, text_body, html_body,
+        message_type, status, error_message, message_id, campaign_id,
+        delivered_at, open_count
+      ) VALUES (
+        ${id},
+        ${opts.sender},
+        ${opts.recipient},
+        ${opts.subject},
+        ${opts.text || null},
+        ${opts.html || null},
+        ${opts.messageType || 'email'},
+        ${opts.status === 'sent' ? 'delivered' : opts.status},
+        ${opts.error || null},
+        ${opts.messageId || null},
+        ${opts.campaignId || null},
+        ${delivered ? new Date().toISOString() : null},
+        0
+      )
+    `;
+  } catch (e) {
+    // Old schema without delivered_at / open_count
+    console.error('logEmail with tracking cols failed, fallback', e);
+    await sql`
+      INSERT INTO emails (
+        id, sender, recipient, subject, text_body, html_body,
+        message_type, status, error_message, message_id, campaign_id
+      ) VALUES (
+        ${id},
+        ${opts.sender},
+        ${opts.recipient},
+        ${opts.subject},
+        ${opts.text || null},
+        ${opts.html || null},
+        ${opts.messageType || 'email'},
+        ${opts.status === 'sent' ? 'delivered' : opts.status},
+        ${opts.error || null},
+        ${opts.messageId || null},
+        ${opts.campaignId || null}
+      )
+    `;
+  }
+
+  if (opts.status === 'sent' || opts.status === 'delivered') {
     try {
       await upsertCustomer(opts.recipient, {
         note: opts.subject ? `Last: ${opts.subject.slice(0, 80)}` : '',
       });
-    } catch (e) {
-      console.error('upsertCustomer failed', e);
+    } catch (err) {
+      console.error('upsertCustomer failed', err);
     }
   }
 
   return id;
+}
+
+export async function recordOpen(emailId: string) {
+  if (!hasDatabase() || !emailId) return false;
+  const sql = getSql();
+  try {
+    await sql`
+      UPDATE emails SET
+        open_count = COALESCE(open_count, 0) + 1,
+        opened_at = COALESCE(opened_at, NOW()),
+        status = CASE
+          WHEN lower(status) = 'failed' THEN status
+          ELSE 'opened'
+        END
+      WHERE id = ${emailId}
+    `;
+    return true;
+  } catch (e) {
+    // Fallback: only status if columns missing
+    try {
+      await sql`
+        UPDATE emails SET status = 'opened'
+        WHERE id = ${emailId} AND lower(status) != 'failed'
+      `;
+      return true;
+    } catch (e2) {
+      console.error('recordOpen failed', e2);
+      return false;
+    }
+  }
 }
 
 export async function listEmails(opts?: {
@@ -139,6 +207,14 @@ export async function listEmails(opts?: {
     `) as EmailRow[];
   }
   if (status) {
+    // "sent" filter also includes delivered + opened (pipeline stages)
+    if (status === 'sent') {
+      return (await sql`
+        SELECT * FROM emails
+        WHERE lower(status) IN ('sent', 'delivered', 'opened')
+        ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+      `) as EmailRow[];
+    }
     return (await sql`
       SELECT * FROM emails WHERE status = ${status}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
@@ -168,6 +244,8 @@ export async function getStats(): Promise<EmailStats> {
     total: 0,
     sent: 0,
     failed: 0,
+    delivered: 0,
+    opened: 0,
     otp: 0,
     email: 0,
     today: 0,
@@ -181,12 +259,14 @@ export async function getStats(): Promise<EmailStats> {
     const rows = await sql`
       SELECT
         COUNT(*)::int AS total,
-        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'sent' THEN 1 ELSE 0 END), 0)::int AS sent,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('sent','delivered','opened') THEN 1 ELSE 0 END), 0)::int AS sent,
         COALESCE(SUM(CASE WHEN lower(trim(status)) = 'failed' THEN 1 ELSE 0 END), 0)::int AS failed,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('delivered','opened') OR delivered_at IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS delivered,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'opened' OR opened_at IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS opened,
         COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'otp' THEN 1 ELSE 0 END), 0)::int AS otp,
         COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'email' THEN 1 ELSE 0 END), 0)::int AS email,
         COALESCE(SUM(CASE WHEN created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today,
-        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'sent' AND created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today_sent,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('sent','delivered','opened') AND created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today_sent,
         COALESCE(SUM(CASE WHEN lower(trim(status)) = 'failed' AND created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today_failed
       FROM emails
     `;
@@ -196,6 +276,8 @@ export async function getStats(): Promise<EmailStats> {
       total: n(r.total),
       sent: n(r.sent),
       failed: n(r.failed),
+      delivered: n(r.delivered),
+      opened: n(r.opened),
       otp: n(r.otp),
       email: n(r.email),
       today: n(r.today),
@@ -204,7 +286,6 @@ export async function getStats(): Promise<EmailStats> {
     };
   } catch (e) {
     console.error('getStats error', e);
-    // Fallback: count from a large fetch if aggregate fails
     try {
       const sql = getSql();
       const all = (await sql`SELECT status, message_type, created_at FROM emails`) as {
@@ -220,18 +301,22 @@ export async function getStats(): Promise<EmailStats> {
           return false;
         }
       };
+      const st = (s: string) => (s || '').toLowerCase().trim();
       return {
         total: all.length,
-        sent: all.filter((e) => e.status?.toLowerCase().trim() === 'sent').length,
-        failed: all.filter((e) => e.status?.toLowerCase().trim() === 'failed').length,
-        otp: all.filter((e) => e.message_type?.toLowerCase().trim() === 'otp').length,
-        email: all.filter((e) => e.message_type?.toLowerCase().trim() === 'email').length,
+        sent: all.filter((e) => ['sent', 'delivered', 'opened'].includes(st(e.status))).length,
+        failed: all.filter((e) => st(e.status) === 'failed').length,
+        delivered: all.filter((e) => ['delivered', 'opened'].includes(st(e.status))).length,
+        opened: all.filter((e) => st(e.status) === 'opened').length,
+        otp: all.filter((e) => st(e.message_type) === 'otp').length,
+        email: all.filter((e) => st(e.message_type) === 'email').length,
         today: all.filter((e) => isToday(e.created_at)).length,
         todaySent: all.filter(
-          (e) => e.status?.toLowerCase().trim() === 'sent' && isToday(e.created_at)
+          (e) =>
+            ['sent', 'delivered', 'opened'].includes(st(e.status)) && isToday(e.created_at)
         ).length,
         todayFailed: all.filter(
-          (e) => e.status?.toLowerCase().trim() === 'failed' && isToday(e.created_at)
+          (e) => st(e.status) === 'failed' && isToday(e.created_at)
         ).length,
       };
     } catch (e2) {
@@ -307,7 +392,7 @@ export async function syncCustomersFromEmails(): Promise<number> {
   const rows = (await sql`
     SELECT DISTINCT ON (lower(recipient)) recipient, subject, created_at
     FROM emails
-    WHERE lower(trim(status)) = 'sent'
+    WHERE lower(trim(status)) IN ('sent', 'delivered', 'opened')
     ORDER BY lower(recipient), created_at DESC
   `) as { recipient: string; subject: string; created_at: string }[];
 
