@@ -54,6 +54,10 @@ function n(v: unknown): number {
   return Number.isFinite(x) ? Math.trunc(x) : 0;
 }
 
+function st(s: unknown): string {
+  return String(s || '').toLowerCase().trim();
+}
+
 export async function logEmail(opts: {
   id?: string;
   sender: string;
@@ -71,11 +75,8 @@ export async function logEmail(opts: {
   const sql = getSql();
   const id = opts.id || randomUUID();
   const delivered =
-    opts.status === 'sent' || opts.status === 'delivered' || opts.status === 'opened'
-      ? true
-      : false;
+    opts.status === 'sent' || opts.status === 'delivered' || opts.status === 'opened';
 
-  // Prefer columns with tracking fields; fall back if migration not run yet
   try {
     await sql`
       INSERT INTO emails (
@@ -99,7 +100,6 @@ export async function logEmail(opts: {
       )
     `;
   } catch (e) {
-    // Old schema without delivered_at / open_count
     console.error('logEmail with tracking cols failed, fallback', e);
     await sql`
       INSERT INTO emails (
@@ -150,7 +150,6 @@ export async function recordOpen(emailId: string) {
     `;
     return true;
   } catch (e) {
-    // Fallback: only status if columns missing
     try {
       await sql`
         UPDATE emails SET status = 'opened'
@@ -207,7 +206,6 @@ export async function listEmails(opts?: {
     `) as EmailRow[];
   }
   if (status) {
-    // "sent" filter also includes delivered + opened (pipeline stages)
     if (status === 'sent') {
       return (await sql`
         SELECT * FROM emails
@@ -216,7 +214,7 @@ export async function listEmails(opts?: {
       `) as EmailRow[];
     }
     return (await sql`
-      SELECT * FROM emails WHERE status = ${status}
+      SELECT * FROM emails WHERE lower(status) = ${status.toLowerCase()}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as EmailRow[];
   }
@@ -254,6 +252,7 @@ export async function getStats(): Promise<EmailStats> {
   };
   if (!hasDatabase()) return empty;
 
+  // Primary: status-only counts (no dependence on optional columns)
   try {
     const sql = getSql();
     const rows = await sql`
@@ -261,8 +260,8 @@ export async function getStats(): Promise<EmailStats> {
         COUNT(*)::int AS total,
         COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('sent','delivered','opened') THEN 1 ELSE 0 END), 0)::int AS sent,
         COALESCE(SUM(CASE WHEN lower(trim(status)) = 'failed' THEN 1 ELSE 0 END), 0)::int AS failed,
-        COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('delivered','opened') OR delivered_at IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS delivered,
-        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'opened' OR opened_at IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS opened,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('delivered','opened') THEN 1 ELSE 0 END), 0)::int AS delivered,
+        COALESCE(SUM(CASE WHEN lower(trim(status)) = 'opened' THEN 1 ELSE 0 END), 0)::int AS opened,
         COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'otp' THEN 1 ELSE 0 END), 0)::int AS otp,
         COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'email' THEN 1 ELSE 0 END), 0)::int AS email,
         COALESCE(SUM(CASE WHEN created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today,
@@ -272,7 +271,7 @@ export async function getStats(): Promise<EmailStats> {
     `;
 
     const r = (rows as any[])[0] || {};
-    return {
+    const result: EmailStats = {
       total: n(r.total),
       sent: n(r.sent),
       failed: n(r.failed),
@@ -284,6 +283,22 @@ export async function getStats(): Promise<EmailStats> {
       todaySent: n(r.today_sent),
       todayFailed: n(r.today_failed),
     };
+
+    // If aggregate returned zeros but we know rows exist, force recount from all statuses
+    if (result.total > 0 && result.delivered === 0 && result.opened === 0) {
+      const recount = await sql`SELECT status FROM emails`;
+      const all = recount as { status: string }[];
+      result.sent = all.filter((e) =>
+        ['sent', 'delivered', 'opened'].includes(st(e.status))
+      ).length;
+      result.failed = all.filter((e) => st(e.status) === 'failed').length;
+      result.delivered = all.filter((e) =>
+        ['delivered', 'opened'].includes(st(e.status))
+      ).length;
+      result.opened = all.filter((e) => st(e.status) === 'opened').length;
+    }
+
+    return result;
   } catch (e) {
     console.error('getStats error', e);
     try {
@@ -301,7 +316,6 @@ export async function getStats(): Promise<EmailStats> {
           return false;
         }
       };
-      const st = (s: string) => (s || '').toLowerCase().trim();
       return {
         total: all.length,
         sent: all.filter((e) => ['sent', 'delivered', 'opened'].includes(st(e.status))).length,
