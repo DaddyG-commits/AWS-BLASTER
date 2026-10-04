@@ -1,4 +1,4 @@
--- Run once on Neon Postgres
+-- Run on Neon Postgres (SQL Editor)
 
 CREATE TABLE IF NOT EXISTS emails (
   id TEXT PRIMARY KEY,
@@ -31,3 +31,16 @@ CREATE TABLE IF NOT EXISTS campaigns (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   finished_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS customers (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  last_emailed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  send_count INT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_customers_email ON customers (email);
+CREATE INDEX IF NOT EXISTS idx_customers_last ON customers (last_emailed_at DESC);
