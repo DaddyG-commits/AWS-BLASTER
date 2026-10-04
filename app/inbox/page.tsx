@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type Email = {
   id: string;
@@ -41,6 +41,10 @@ function statusBadge(e: Email) {
   return { label: s || 'unknown', className: 'sent' };
 }
 
+function norm(s: string) {
+  return (s || '').toLowerCase().trim();
+}
+
 export default function InboxPage() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -53,11 +57,11 @@ export default function InboxPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Always load full list for accurate client counts, then apply filter in UI
       const params = new URLSearchParams();
-      if (status !== 'all') params.set('status', status);
+      params.set('limit', '2000');
       if (type !== 'all') params.set('type', type);
       if (q.trim()) params.set('q', q.trim());
-      params.set('limit', '2000');
 
       const [emailsRes, statsRes] = await Promise.all([
         fetch(`/api/emails?${params}`),
@@ -74,7 +78,7 @@ export default function InboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, type, q]);
+  }, [type, q]);
 
   useEffect(() => {
     load();
@@ -82,16 +86,69 @@ export default function InboxPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  const display = stats || {
-    total: 0,
-    sent: 0,
-    failed: 0,
-    delivered: 0,
-    opened: 0,
-    otp: 0,
-    email: 0,
-    today: 0,
-  };
+  // Counts from API, with client recount if delivered/opened stuck at 0
+  const display = useMemo(() => {
+    const fromRows = {
+      total: emails.length,
+      sent: emails.filter((e) =>
+        ['sent', 'delivered', 'opened'].includes(norm(e.status))
+      ).length,
+      failed: emails.filter((e) => norm(e.status) === 'failed').length,
+      delivered: emails.filter((e) =>
+        ['delivered', 'opened'].includes(norm(e.status)) || !!e.delivered_at
+      ).length,
+      opened: emails.filter(
+        (e) => norm(e.status) === 'opened' || !!e.opened_at || (e.open_count || 0) > 0
+      ).length,
+      otp: emails.filter((e) => norm(e.message_type) === 'otp').length,
+      email: emails.filter((e) => norm(e.message_type) === 'email').length,
+      today: emails.filter((e) => {
+        try {
+          return new Date(e.created_at).toDateString() === new Date().toDateString();
+        } catch {
+          return false;
+        }
+      }).length,
+    };
+
+    if (!stats) return fromRows;
+
+    const apiDelivered = stats.delivered ?? 0;
+    const apiOpened = stats.opened ?? 0;
+
+    // Prefer API total when higher; never show 0 for delivered/opened if rows prove otherwise
+    return {
+      total: Math.max(stats.total || 0, fromRows.total),
+      sent: Math.max(stats.sent || 0, fromRows.sent),
+      failed: Math.max(stats.failed || 0, fromRows.failed),
+      delivered: Math.max(apiDelivered, fromRows.delivered),
+      opened: Math.max(apiOpened, fromRows.opened),
+      otp: Math.max(stats.otp || 0, fromRows.otp),
+      email: Math.max(stats.email || 0, fromRows.email),
+      today: Math.max(stats.today || 0, fromRows.today),
+    };
+  }, [stats, emails]);
+
+  const filtered = useMemo(() => {
+    return emails.filter((e) => {
+      const s = norm(e.status);
+      if (status === 'failed' && s !== 'failed') return false;
+      if (status === 'opened' && s !== 'opened' && !e.opened_at) return false;
+      if (
+        status === 'delivered' &&
+        s !== 'delivered' &&
+        s !== 'opened' &&
+        !e.delivered_at
+      )
+        return false;
+      if (
+        status === 'sent' &&
+        !['sent', 'delivered', 'opened'].includes(s)
+      )
+        return false;
+      return true;
+    });
+  }, [emails, status]);
 
   return (
     <div className="container wide">
@@ -110,11 +167,11 @@ export default function InboxPage() {
           <div className="stat-label">Sent</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{display.delivered ?? 0}</div>
+          <div className="stat-value">{display.delivered}</div>
           <div className="stat-label">Delivered</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{display.opened ?? 0}</div>
+          <div className="stat-value">{display.opened}</div>
           <div className="stat-label">Opened</div>
         </div>
         <div className="stat-card bad">
@@ -159,14 +216,14 @@ export default function InboxPage() {
       {warning && <div className="message info">{warning}</div>}
 
       <p className="muted" style={{ textAlign: 'left', padding: '0 0 12px' }}>
-        Opens are tracked when the recipient loads images (HTML emails). Some clients
-        block images until the user allows them.
+        Opens track when the recipient loads images. Counts update from the list and the
+        database.
       </p>
 
       {loading && emails.length === 0 ? (
         <p className="muted">Loading…</p>
-      ) : emails.length === 0 ? (
-        <p className="muted">No emails logged yet. Send one from the Send Email page.</p>
+      ) : filtered.length === 0 ? (
+        <p className="muted">No emails for this filter.</p>
       ) : (
         <div className="table-wrap">
           <table className="data-table">
@@ -181,7 +238,7 @@ export default function InboxPage() {
               </tr>
             </thead>
             <tbody>
-              {emails.map((e) => {
+              {filtered.map((e) => {
                 const b = statusBadge(e);
                 return (
                   <tr key={e.id}>
