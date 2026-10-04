@@ -8,6 +8,7 @@ export default function Home() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [isHtml, setIsHtml] = useState(true);
+  const [showPreview, setShowPreview] = useState(true);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
     type: 'success' | 'error';
@@ -65,9 +66,9 @@ export default function Home() {
   };
 
   return (
-    <div className="container">
+    <div className={`container ${isHtml && showPreview ? 'wide' : ''}`}>
       <h1>CryptoByt</h1>
-      <p className="subtitle">Send HTML or plain email via Amazon SES</p>
+      <p className="subtitle">Send HTML or plain email via Gmail</p>
 
       <form onSubmit={handleSubmit}>
         <div className="form-group">
@@ -119,27 +120,49 @@ export default function Home() {
               justifyContent: 'space-between',
               alignItems: 'center',
               marginBottom: 6,
+              flexWrap: 'wrap',
+              gap: 8,
             }}
           >
             <label htmlFor="body" style={{ margin: 0 }}>
               Message
             </label>
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={isHtml}
-                onChange={(e) => setIsHtml(e.target.checked)}
-              />
-              HTML Mode
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isHtml}
+                  onChange={(e) => setIsHtml(e.target.checked)}
+                />
+                HTML Mode
+              </label>
+              {isHtml && (
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={showPreview}
+                    onChange={(e) => setShowPreview(e.target.checked)}
+                  />
+                  Preview
+                </label>
+              )}
+            </div>
           </div>
           <textarea
             id="body"
@@ -149,8 +172,29 @@ export default function Home() {
               isHtml ? 'Paste your HTML here…' : 'Write your message here…'
             }
             required
+            rows={isHtml && showPreview ? 10 : 8}
           />
         </div>
+
+        {isHtml && showPreview && (
+          <div className="form-group">
+            <label>HTML Preview</label>
+            <div className="html-preview-frame">
+              {body.trim() ? (
+                <iframe
+                  title="HTML email preview"
+                  className="html-preview-iframe"
+                  srcDoc={body}
+                  sandbox=""
+                />
+              ) : (
+                <div className="html-preview-empty">
+                  Paste HTML above to see a live preview
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <button type="submit" disabled={loading}>
           {loading ? 'Sending…' : 'Send Email'}
@@ -162,7 +206,7 @@ export default function Home() {
       )}
 
       <div className="api-info">
-        <p>Use the menu for Inbox, Tools, and OTP</p>
+        <p>Use the menu for Extractor, Customers, Validator, and OTP</p>
       </div>
     </div>
   );

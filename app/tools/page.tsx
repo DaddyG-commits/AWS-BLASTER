@@ -1,20 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-
-const EMAIL_RE =
-  /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+import Link from 'next/link';
 
 const STRICT_RE =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-
-function extractEmails(text: string): string[] {
-  const found = text.match(EMAIL_RE) || [];
-  const unique = Array.from(
-    new Set(found.map((e) => e.trim().toLowerCase()))
-  );
-  return unique.sort();
-}
 
 function validateEmail(email: string) {
   const e = email.trim();
@@ -33,11 +23,7 @@ function validateEmail(email: string) {
 }
 
 export default function ToolsPage() {
-  const [raw, setRaw] = useState('');
   const [validateInput, setValidateInput] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const extracted = useMemo(() => extractEmails(raw), [raw]);
 
   const validationLines = useMemo(() => {
     const lines = validateInput
@@ -50,81 +36,57 @@ export default function ToolsPage() {
   const validCount = validationLines.filter((v) => v.valid).length;
   const invalidCount = validationLines.length - validCount;
 
-  const copyExtracted = async () => {
-    await navigator.clipboard.writeText(extracted.join('\n'));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
   return (
     <div className="container wide">
-      <h1>Extractor &amp; Validator</h1>
-      <p className="subtitle">Pull emails from text · check format (lit14-style)</p>
+      <h1>Email Validator</h1>
+      <p className="subtitle">
+        Check email format ·{' '}
+        <Link href="/extractor" style={{ color: '#00d2ff' }}>
+          open Extractor
+        </Link>{' '}
+        for pulling emails from text
+      </p>
 
-      <div className="tools-grid">
-        <div className="tool-card">
-          <h2>Email extractor</h2>
-          <div className="form-group">
-            <label htmlFor="raw">Paste any text, HTML, or list</label>
-            <textarea
-              id="raw"
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
-              placeholder="Paste messy text here… emails will be extracted"
-              rows={8}
-            />
-          </div>
-          <div className="stats-row">
-            <span className="stat-pill">{extracted.length} unique</span>
-          </div>
-          {extracted.length > 0 && (
-            <>
-              <div className="result-box">{extracted.join('\n')}</div>
-              <button type="button" className="secondary" onClick={copyExtracted}>
-                {copied ? 'Copied!' : 'Copy emails'}
-              </button>
-            </>
-          )}
+      <div className="tool-card">
+        <h2>Validate emails</h2>
+        <div className="form-group">
+          <label htmlFor="validate">One email per line (or comma-separated)</label>
+          <textarea
+            id="validate"
+            value={validateInput}
+            onChange={(e) => setValidateInput(e.target.value)}
+            placeholder="user@example.com&#10;bad@email&#10;hello@domain.org"
+            rows={10}
+          />
         </div>
-
-        <div className="tool-card">
-          <h2>Email validator</h2>
-          <div className="form-group">
-            <label htmlFor="validate">One email per line (or comma-separated)</label>
-            <textarea
-              id="validate"
-              value={validateInput}
-              onChange={(e) => setValidateInput(e.target.value)}
-              placeholder="user@example.com&#10;bad@email&#10;hello@domain.org"
-              rows={8}
-            />
-          </div>
-          {validationLines.length > 0 && (
-            <>
-              <div className="stats-row">
-                <span className="stat-pill">{validCount} valid</span>
-                <span className="stat-pill">{invalidCount} invalid</span>
-              </div>
-              <div className="list" style={{ maxHeight: 240, marginTop: 12 }}>
-                {validationLines.map((v, i) => (
-                  <div key={`${v.email}-${i}`} className="list-item">
-                    <div>
-                      <strong>{v.email}</strong>
-                      <span className={`badge ${v.valid ? 'delivered' : 'error'}`}>
-                        {v.valid ? 'valid' : 'invalid'}
-                      </span>
-                    </div>
-                    <div className="list-meta">{v.reason}</div>
+        {validationLines.length > 0 && (
+          <>
+            <div className="stats-row">
+              <span className="stat-pill">{validCount} valid</span>
+              <span className="stat-pill">{invalidCount} invalid</span>
+            </div>
+            <div className="list" style={{ maxHeight: 320, marginTop: 12 }}>
+              {validationLines.map((v, i) => (
+                <div key={`${v.email}-${i}`} className="list-item">
+                  <div>
+                    <strong>{v.email}</strong>
+                    <span className={`badge ${v.valid ? 'delivered' : 'error'}`}>
+                      {v.valid ? 'valid' : 'invalid'}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+                  <div className="list-meta">{v.reason}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="api-info">
-        <p>Format validation only — does not check mailbox existence (MX/SMTP probe)</p>
+        <p>
+          Format validation only — does not check mailbox existence (MX/SMTP
+          probe)
+        </p>
       </div>
     </div>
   );

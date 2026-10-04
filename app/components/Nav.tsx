@@ -6,7 +6,9 @@ import { useEffect, useRef, useState } from 'react';
 
 const LINKS = [
   { href: '/', label: 'Send Email' },
-  { href: '/tools', label: 'Extractor & Validator' },
+  { href: '/extractor', label: 'Email Extractor' },
+  { href: '/customers', label: 'Customers' },
+  { href: '/tools', label: 'Validator' },
   { href: '/otp', label: 'OTP Sender' },
 ];
 
@@ -33,7 +35,7 @@ export default function Nav() {
   return (
     <div className="nav-bar" ref={ref}>
       <Link href="/" className="nav-brand">
-        AWS BLASTER
+        CryptoByt
       </Link>
       <div className="nav-dropdown">
         <button
@@ -52,7 +54,9 @@ export default function Nav() {
                 key={l.href}
                 href={l.href}
                 className={
-                  (l.href === '/' ? pathname === '/' : pathname.startsWith(l.href))
+                  (l.href === '/'
+                    ? pathname === '/'
+                    : pathname.startsWith(l.href))
                     ? 'nav-item active'
                     : 'nav-item'
                 }
