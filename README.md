@@ -1,36 +1,40 @@
-# CryptoByt
+# AWS BLASTER (CryptoByt mail)
 
-Email service powered by **Gmail SMTP** (Google App Password), deployed on **Vercel**.
+Advanced email ops console — Gmail SMTP + Neon log — similar to LeadBot Pro.
 
 ## Features
 
-- Send HTML / plain email via Gmail
-- Inbox status page (quota notes + Gmail Sent guidance)
-- Email extractor & validator
-- OTP sender
-- Dropdown navigation
+- **Dashboard** — total / sent / failed / today counts + success rate
+- **Send Email** — HTML or plain, multi-recipient, per-recipient results
+- **Campaigns** — bulk blast with live sent/failed list
+- **Sent Inbox** — full history, filter by status (sent/failed), type (email/otp), search
+- **OTP Sender** — multi-recipient codes, logged in inbox
+- **Email Extractor** · **Customers** · **Validator**
+- Every delivery writes a DB row (`sent` or `failed` + error message)
 
 ## Setup
 
-### 1. Google App Password
+### 1. Gmail App Password
 
-1. Use account: `lawofficeclientdesk@gmail.com` (or your own)
-2. Enable **2-Step Verification**
-3. Create an App Password: https://myaccount.google.com/apppasswords
-4. Copy the 16-character password
-
-### 2. Vercel environment variables
+1. Enable **2-Step Verification**
+2. Create App Password: https://myaccount.google.com/apppasswords
+3. Set on Vercel:
 
 ```env
-SMTP_USER=lawofficeclientdesk@gmail.com
+SMTP_USER=you@gmail.com
 SMTP_PASS=xxxx xxxx xxxx xxxx
-MAIL_FROM=lawofficeclientdesk@gmail.com
+MAIL_FROM=you@gmail.com
 MAIL_FROM_NAME=CryptoByt
 ```
 
-Spaces in the App Password are fine (stripped automatically).
+### 2. Neon database (inbox + stats)
 
-Redeploy after saving env vars.
+1. Create a free project at [console.neon.tech](https://console.neon.tech)
+2. Copy the connection string → `DATABASE_URL` on Vercel
+3. In Neon SQL Editor, run the contents of `schema.sql`
+4. Redeploy
+
+Without `DATABASE_URL`, sending still works; inbox/stats stay empty.
 
 ### 3. Local
 
@@ -42,12 +46,14 @@ npm run dev
 
 ## API
 
-- `POST /api/send` — send email
-- `POST /api/otp` — send OTP
-- `GET /api/inbox` — provider status
-- `GET /api/send` — health check
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/send` | Send to one or many; returns `sent` / `failed` counts + `results[]` |
+| POST | `/api/otp` | OTP to one or many; logs each |
+| GET | `/api/emails?status=sent\|failed&type=email\|otp&q=` | Inbox list |
+| GET | `/api/stats` | Aggregate counts |
 
 ## Notes
 
 - Gmail free accounts are typically limited to ~500 sends/day.
-- Sent history is in **Gmail → Sent**, not in Brevo.
+- Failed rows store the SMTP error so you can debug in **Sent Inbox**.
