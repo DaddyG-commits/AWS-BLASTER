@@ -3,7 +3,7 @@ import './globals.css';
 import Nav from './components/Nav';
 
 export const metadata: Metadata = {
-  title: 'AWS BLASTER',
+  title: 'CryptoByt',
   description: 'HTML Email Service — Send, Inbox, Tools, OTP',
 };
 
