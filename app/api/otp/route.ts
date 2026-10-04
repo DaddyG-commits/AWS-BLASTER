@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   formatMailError,
+  getMailConfig,
   isMailConfigured,
   sendMail,
 } from '../../../lib/mail';
+import { logEmail } from '../../../lib/store';
 
 function generateOtp(length: number) {
   const n = Math.max(4, Math.min(8, length || 6));
@@ -14,15 +16,32 @@ function generateOtp(length: number) {
   return code;
 }
 
+function parseRecipients(to: unknown): string[] {
+  if (Array.isArray(to)) {
+    return [...new Set(to.map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+  }
+  if (typeof to === 'string') {
+    return [
+      ...new Set(
+        to
+          .split(/[,;\s\n]+/)
+          .map((e) => e.trim().toLowerCase())
+          .filter((e) => e.includes('@'))
+      ),
+    ];
+  }
+  return [];
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const to = (body.to || '').trim();
+    const recipients = parseRecipients(body.to);
     const fromName = (body.fromName || '').trim();
     const length = Number(body.length) || 6;
     const customMessage = (body.message || '').trim();
 
-    if (!to || !to.includes('@')) {
+    if (!recipients.length) {
       return NextResponse.json(
         { error: 'Valid recipient email (to) is required' },
         { status: 400 }
@@ -59,19 +78,70 @@ export async function POST(request: NextRequest) {
   </div>
 </body></html>`;
 
-    const info = await sendMail({
-      to,
-      subject,
-      text,
-      html,
-      fromName: fromName || undefined,
-    });
+    const cfg = getMailConfig();
+    const sender = cfg.fromEmail || cfg.user;
+    const results: {
+      recipient: string;
+      success: boolean;
+      messageId?: string;
+      error?: string;
+    }[] = [];
+
+    for (const recipient of recipients) {
+      try {
+        const info = await sendMail({
+          to: recipient,
+          subject,
+          text,
+          html,
+          fromName: fromName || undefined,
+        });
+        const messageId = info.messageId || `otp-${Date.now()}`;
+        try {
+          await logEmail({
+            sender,
+            recipient,
+            subject,
+            text,
+            html,
+            messageType: 'otp',
+            status: 'sent',
+            messageId,
+          });
+        } catch (e) {
+          console.error(e);
+        }
+        results.push({ recipient, success: true, messageId });
+      } catch (error) {
+        const errMsg = formatMailError(error);
+        try {
+          await logEmail({
+            sender,
+            recipient,
+            subject,
+            text,
+            html,
+            messageType: 'otp',
+            status: 'failed',
+            error: errMsg,
+          });
+        } catch (e) {
+          console.error(e);
+        }
+        results.push({ recipient, success: false, error: errMsg });
+      }
+    }
+
+    const sent = results.filter((r) => r.success).length;
 
     return NextResponse.json({
-      success: true,
-      messageId: info.messageId || 'sent',
+      success: sent > 0,
       otp,
-      message: 'OTP email sent successfully via Gmail',
+      total: results.length,
+      sent,
+      failed: results.length - sent,
+      results,
+      message: `OTP sent to ${sent} of ${results.length}`,
     });
   } catch (error: unknown) {
     console.error('OTP send error:', error);
