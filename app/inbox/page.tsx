@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type Email = {
   id: string;
@@ -24,6 +24,7 @@ type Stats = {
   todaySent: number;
   todayFailed: number;
   database?: boolean;
+  error?: string;
 };
 
 export default function InboxPage() {
@@ -42,7 +43,7 @@ export default function InboxPage() {
       if (status !== 'all') params.set('status', status);
       if (type !== 'all') params.set('type', type);
       if (q.trim()) params.set('q', q.trim());
-      params.set('limit', '200');
+      params.set('limit', '500');
 
       const [emailsRes, statsRes] = await Promise.all([
         fetch(`/api/emails?${params}`),
@@ -52,7 +53,7 @@ export default function InboxPage() {
       const statsData = await statsRes.json();
 
       setEmails(emailsData.emails || []);
-      setWarning(emailsData.warning || emailsData.error || '');
+      setWarning(emailsData.warning || emailsData.error || statsData.error || '');
       setStats(statsData);
     } catch {
       setWarning('Could not load inbox');
@@ -65,39 +66,70 @@ export default function InboxPage() {
     load();
   }, [load]);
 
+  // Fallback: if API stats are zero but we have rows, count from loaded list
+  const displayStats = useMemo(() => {
+    const list = emails;
+    const fromList = {
+      total: list.length,
+      sent: list.filter((e) => e.status?.toLowerCase() === 'sent').length,
+      failed: list.filter((e) => e.status?.toLowerCase() === 'failed').length,
+      otp: list.filter((e) => e.message_type?.toLowerCase() === 'otp').length,
+      email: list.filter((e) => e.message_type?.toLowerCase() === 'email').length,
+      today: list.filter((e) => {
+        const d = new Date(e.created_at);
+        const now = new Date();
+        return d.toDateString() === now.toDateString();
+      }).length,
+    };
+
+    if (!stats) return fromList;
+
+    // Prefer API when it has real totals; otherwise use list counts for visible cards
+    if ((stats.total || 0) > 0) {
+      return {
+        total: stats.total,
+        sent: stats.sent,
+        failed: stats.failed,
+        otp: stats.otp,
+        email: stats.email,
+        today: stats.today,
+      };
+    }
+
+    return fromList;
+  }, [stats, emails]);
+
   return (
     <div className="container wide">
       <h1>Sent inbox</h1>
       <p className="subtitle">Every send and failure logged with counts</p>
 
-      {stats && (
-        <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-value">{stats.total}</div>
-            <div className="stat-label">Total</div>
-          </div>
-          <div className="stat-card ok">
-            <div className="stat-value">{stats.sent}</div>
-            <div className="stat-label">Sent</div>
-          </div>
-          <div className="stat-card bad">
-            <div className="stat-value">{stats.failed}</div>
-            <div className="stat-label">Failed</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.today}</div>
-            <div className="stat-label">Today</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.otp}</div>
-            <div className="stat-label">OTP</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.email}</div>
-            <div className="stat-label">Email</div>
-          </div>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-value">{displayStats.total}</div>
+          <div className="stat-label">Total</div>
         </div>
-      )}
+        <div className="stat-card ok">
+          <div className="stat-value">{displayStats.sent}</div>
+          <div className="stat-label">Sent</div>
+        </div>
+        <div className="stat-card bad">
+          <div className="stat-value">{displayStats.failed}</div>
+          <div className="stat-label">Failed</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{displayStats.today}</div>
+          <div className="stat-label">Today</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{displayStats.otp}</div>
+          <div className="stat-label">OTP</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{displayStats.email}</div>
+          <div className="stat-label">Email</div>
+        </div>
+      </div>
 
       <div className="filter-bar">
         <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
@@ -116,7 +148,12 @@ export default function InboxPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <button type="button" className="secondary" onClick={load} style={{ width: 'auto', padding: '10px 16px' }}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={load}
+          style={{ width: 'auto', padding: '10px 16px' }}
+        >
           Refresh
         </button>
       </div>
@@ -144,7 +181,11 @@ export default function InboxPage() {
               {emails.map((e) => (
                 <tr key={e.id}>
                   <td>
-                    <span className={`badge ${e.status === 'sent' ? 'sent' : 'error'}`}>
+                    <span
+                      className={`badge ${
+                        e.status?.toLowerCase() === 'sent' ? 'sent' : 'error'
+                      }`}
+                    >
                       {e.status}
                     </span>
                   </td>
