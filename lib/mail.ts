@@ -7,7 +7,7 @@ export function getMailConfig() {
   const user = (process.env.SMTP_USER || '').trim();
   const pass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
   const fromEmail = (process.env.MAIL_FROM || user).trim();
-  const fromName = (process.env.MAIL_FROM_NAME || 'AWS BLASTER').trim();
+  const fromName = (process.env.MAIL_FROM_NAME || 'CryptoByt').trim();
   const host = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
   const port = parseInt(process.env.SMTP_PORT || '587', 10);
 
