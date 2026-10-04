@@ -12,8 +12,16 @@ CREATE TABLE IF NOT EXISTS emails (
   error_message TEXT,
   message_id TEXT,
   campaign_id TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  delivered_at TIMESTAMPTZ,
+  opened_at TIMESTAMPTZ,
+  open_count INT NOT NULL DEFAULT 0
 );
+
+-- If emails table already exists, run these:
+ALTER TABLE emails ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+ALTER TABLE emails ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ;
+ALTER TABLE emails ADD COLUMN IF NOT EXISTS open_count INT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_emails_created ON emails (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_emails_status ON emails (status);
