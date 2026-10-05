@@ -8,6 +8,9 @@ const LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/', label: 'Send Email' },
   { href: '/campaigns', label: 'Campaigns' },
+  { href: '/leads', label: 'Leads' },
+  { href: '/extract', label: 'SEC Extract' },
+  { href: '/verify', label: 'Verify' },
   { href: '/inbox', label: 'Sent Inbox' },
   { href: '/extractor', label: 'Email Extractor' },
   { href: '/customers', label: 'Customers' },
@@ -38,7 +41,7 @@ export default function Nav() {
   return (
     <div className="nav-bar" ref={ref}>
       <Link href="/dashboard" className="nav-brand">
-        CryptoByt
+        AWS BLASTER
       </Link>
       <div className="nav-dropdown">
         <button

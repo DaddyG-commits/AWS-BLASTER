@@ -1,42 +1,65 @@
-# AWS BLASTER (CryptoByt mail)
+# AWS BLASTER (CryptoByt)
 
-Advanced email ops console — Gmail SMTP + Neon log — similar to LeadBot Pro.
+LeadBot Pro–grade email ops console: SEC extract → verify → CRM leads → personalized campaigns → open/click tracking → inbox.
+
+Works with **Gmail SMTP** or **Amazon SES SMTP** (or any SMTP provider).
 
 ## Features
 
-- **Dashboard** — total / sent / failed / today counts + success rate
-- **Send Email** — HTML or plain, multi-recipient, per-recipient results
-- **Campaigns** — bulk blast with live sent/failed list
-- **Sent Inbox** — full history, filter by status (sent/failed), type (email/otp), search
-- **OTP Sender** — multi-recipient codes, logged in inbox
-- **Email Extractor** · **Customers** · **Validator**
-- Every delivery writes a DB row (`sent` or `failed` + error message)
+| Area | Capability |
+|------|------------|
+| **Send** | HTML/text, multi-recipient, personalization `{{name}}` `{{company}}` `{{title}}` `{{email}}` |
+| **Campaigns** | Manual list or **from Leads**, dry-run, suppression skip, rate delay |
+| **Leads CRM** | SEC EDGAR executives, import, status pipeline (NEW → VERIFIED → CONTACTED) |
+| **SEC Extract** | Company search + 10-K / DEF 14A / 10-Q executive parse + email patterns |
+| **Verify** | Syntax + MX + disposable/role; optional ZeroBounce |
+| **Tracking** | Open pixel + click rewrite |
+| **Inbox / Customers** | Full history, filters, unique contacts |
+| **OTP** | Multi-recipient codes |
+| **SMTP** | Connection pool, SES/Gmail-aware limits, List-Unsubscribe, envelope From |
 
 ## Setup
 
-### 1. Gmail App Password
+### 1. SMTP
 
-1. Enable **2-Step Verification**
-2. Create App Password: https://myaccount.google.com/apppasswords
-3. Set on Vercel:
-
+**Gmail**
 ```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
 SMTP_USER=you@gmail.com
 SMTP_PASS=xxxx xxxx xxxx xxxx
 MAIL_FROM=you@gmail.com
 MAIL_FROM_NAME=CryptoByt
 ```
 
-### 2. Neon database (inbox + stats)
+**Amazon SES**
+```env
+SMTP_HOST=email-smtp.us-east-1.amazonaws.com
+SMTP_PORT=587
+SMTP_USER=AKIA...
+SMTP_PASS=...
+MAIL_FROM=noreply@your-verified-domain.com
+MAIL_FROM_NAME=CryptoByt
+SMTP_MAX_CONNECTIONS=5
+SMTP_SEND_DELAY_MS=50
+```
 
-1. Create a free project at [console.neon.tech](https://console.neon.tech)
-2. Copy the connection string → `DATABASE_URL` on Vercel
-3. In Neon SQL Editor, run the contents of `schema.sql`
-4. Redeploy
+### 2. Neon + schema
 
-Without `DATABASE_URL`, sending still works; inbox/stats stay empty.
+1. Create Neon project → set `DATABASE_URL`
+2. Run entire `schema.sql` in Neon SQL Editor
+3. Redeploy
 
-### 3. Local
+### 3. Tracking + SEC
+
+```env
+APP_URL=https://your-app.vercel.app
+SEC_USER_AGENT=CryptoByt (you@yourdomain.com)
+```
+
+Optional: `ZEROBOUNCE_API_KEY`, `SMTP_UNSUBSCRIBE_URL`
+
+### 4. Local
 
 ```bash
 cp .env.example .env.local
@@ -44,16 +67,29 @@ npm install
 npm run dev
 ```
 
-## API
+## API highlights
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/send` | Send to one or many; returns `sent` / `failed` counts + `results[]` |
-| POST | `/api/otp` | OTP to one or many; logs each |
-| GET | `/api/emails?status=sent\|failed&type=email\|otp&q=` | Inbox list |
-| GET | `/api/stats` | Aggregate counts |
+| POST | `/api/send` | `{ to }` or `{ mode:"leads", status:"NEW" }` + subject/html · `dryRun` · personalization |
+| GET/POST | `/api/leads` | CRM list / upsert / setup |
+| POST | `/api/sec/extract` | `{ cik }` → executives + email candidates |
+| GET | `/api/sec/extract?q=` | Company search |
+| POST | `/api/verify` | `{ email }` \| `{ emails[] }` \| `{ fromLeads:true }` |
+| GET | `/api/emails` | Inbox |
+| GET | `/api/stats` | Aggregates |
+| GET | `/api/track/open?id=` | Open pixel |
+| GET | `/api/track/click?id=&u=` | Click redirect |
+
+## Flow (LeadBot parity)
+
+1. **SEC Extract** → save leads  
+2. **Verify** → mark VERIFIED / INVALID  
+3. **Campaigns** → mode “From Leads” · personalize · track opens  
+4. **Sent Inbox** + **Customers** → monitor  
 
 ## Notes
 
-- Gmail free accounts are typically limited to ~500 sends/day.
-- Failed rows store the SMTP error so you can debug in **Sent Inbox**.
+- Gmail free ≈ 500/day; SES is built for volume (verify domain + move out of sandbox).
+- Suppression table blocks known bounces when populated.
+- Duplicate same subject to same address within 30 minutes is skipped (pass `force:true` to override).
