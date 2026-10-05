@@ -10,7 +10,6 @@ const LINKS = [
   { href: '/', label: 'Send Email' },
   { href: '/campaigns', label: 'Campaigns' },
   { href: '/leads', label: 'Leads' },
-  { href: '/extract', label: 'SEC Extract' },
   { href: '/verify', label: 'Verify' },
   { href: '/inbox', label: 'Sent Inbox' },
   { href: '/extractor', label: 'Email Extractor' },

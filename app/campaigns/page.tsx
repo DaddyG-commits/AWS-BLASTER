@@ -7,12 +7,11 @@ export default function CampaignsPage() {
   const [fromName, setFromName] = useState('');
   const [subject, setSubject] = useState('Hello {{name}}');
   const [body, setBody] = useState(
-    '<p>Hi {{name}},</p><p>Quick note regarding {{company}}.</p><p>Best,<br/>CryptoByt</p>'
+    '<p>Hi {{name}},</p><p>Thanks for your time.</p><p>Best,<br/>CryptoByt</p>'
   );
   const [recipients, setRecipients] = useState('');
   const [isHtml, setIsHtml] = useState(true);
-  const [mode, setMode] = useState<'manual' | 'leads'>('manual');
-  const [leadStatus, setLeadStatus] = useState('NEW');
+  const [mode, setMode] = useState<'manual' | 'customers'>('manual');
   const [useQueue, setUseQueue] = useState(true);
   const [dryRun, setDryRun] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -71,10 +70,18 @@ export default function CampaignsPage() {
         );
         break;
       }
-      // brief pause between multi-batch rounds
       await new Promise((r) => setTimeout(r, 400));
     }
     loadCampaigns();
+  }
+
+  async function loadCustomersAsRecipients(): Promise<string> {
+    const res = await fetch('/api/customers?limit=5000');
+    const data = await res.json();
+    const list = (data.customers || data.contacts || []) as { email: string; name?: string }[];
+    return list
+      .map((c) => (c.name ? `${c.name} <${c.email}>` : c.email))
+      .join('\n');
   }
 
   async function run(e: React.FormEvent) {
@@ -86,21 +93,27 @@ export default function CampaignsPage() {
     setCampaignId(null);
 
     try {
-      // Background queue path (1k+ safe)
+      let toField = recipients;
+      if (mode === 'customers') {
+        toField = await loadCustomersAsRecipients();
+        if (!toField.trim()) {
+          setResult('No leads in sent inbox yet. Send some mail first, then Sync on Leads.');
+          setLoading(false);
+          return;
+        }
+      }
+
       if (useQueue && !dryRun) {
         const payload: Record<string, unknown> = {
           name,
           subject,
           fromName: fromName.trim() || undefined,
-          mode,
-          status: leadStatus,
+          mode: 'manual',
           limit: 10000,
+          to: toField,
         };
         if (isHtml) payload.html = body;
         else payload.text = body;
-        if (mode === 'manual') {
-          payload.to = recipients;
-        }
 
         const res = await fetch('/api/campaigns', {
           method: 'POST',
@@ -119,31 +132,17 @@ export default function CampaignsPage() {
         return;
       }
 
-      // Immediate / dry-run path (small lists)
       const payload: Record<string, unknown> = {
         subject,
         fromName: fromName.trim() || undefined,
         campaignId: `cmp-${Date.now()}`,
         dryRun,
-        mode,
-        status: leadStatus,
+        mode: 'manual',
         force: true,
+        to: toField,
       };
       if (isHtml) payload.html = body;
       else payload.text = body;
-
-      if (mode === 'manual') {
-        const list = recipients
-          .split(/[,;\n]+/)
-          .map((x) => x.trim())
-          .filter((x) => x.includes('@') || x.includes('<'));
-        if (!list.length) {
-          setResult('Add at least one recipient');
-          setLoading(false);
-          return;
-        }
-        payload.to = list;
-      }
 
       const res = await fetch('/api/send', {
         method: 'POST',
@@ -180,8 +179,7 @@ export default function CampaignsPage() {
     <div className="container wide">
       <h1>Campaigns</h1>
       <p className="subtitle">
-        Bulk blast with background queue (1k+ safe) · personalize {'{{name}}'} {'{{company}}'}{' '}
-        {'{{title}}'}
+        Bulk blast with background queue (1k+ safe) · personalize {'{{name}}'} {'{{email}}'}
       </p>
 
       <form onSubmit={run}>
@@ -190,28 +188,15 @@ export default function CampaignsPage() {
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="form-group">
-          <label>Mode</label>
+          <label>Recipients source</label>
           <select
             value={mode}
-            onChange={(e) => setMode(e.target.value as 'manual' | 'leads')}
+            onChange={(e) => setMode(e.target.value as 'manual' | 'customers')}
           >
             <option value="manual">Manual list</option>
-            <option value="leads">From Prospects (SEC/CRM)</option>
+            <option value="customers">From Leads (sent inbox)</option>
           </select>
         </div>
-        {mode === 'leads' && (
-          <div className="form-group">
-            <label>Prospect status</label>
-            <select
-              value={leadStatus}
-              onChange={(e) => setLeadStatus(e.target.value)}
-            >
-              <option value="NEW">NEW</option>
-              <option value="VERIFIED">VERIFIED</option>
-              <option value="CONTACTED">CONTACTED</option>
-            </select>
-          </div>
-        )}
         <div className="form-group">
           <label>From name</label>
           <input
@@ -288,12 +273,8 @@ export default function CampaignsPage() {
       </form>
 
       {queueStatus && <div className="message info">{queueStatus}</div>}
-      {result && (
-        <div className="message success">{result}</div>
-      )}
-      {campaignId && (
-        <p className="muted">Campaign id: {campaignId}</p>
-      )}
+      {result && <div className="message success">{result}</div>}
+      {campaignId && <p className="muted">Campaign id: {campaignId}</p>}
 
       {details.length > 0 && (
         <div className="list" style={{ marginTop: 16 }}>
