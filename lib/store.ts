@@ -1,4 +1,4 @@
-import { getSql, hasDatabase } from './db';
+import { getSql, hasDatabase, ensureEmailTrackingColumns } from './db';
 import { randomUUID } from 'crypto';
 
 export type EmailRow = {
@@ -76,6 +76,7 @@ export async function logEmail(opts: {
   campaignId?: string;
 }) {
   if (!hasDatabase()) return null;
+  await ensureEmailTrackingColumns();
   const sql = getSql();
   const id = opts.id || randomUUID();
   const delivered =
@@ -143,6 +144,7 @@ export async function logEmail(opts: {
 
 export async function recordOpen(emailId: string) {
   if (!hasDatabase() || !emailId) return false;
+  await ensureEmailTrackingColumns();
   const sql = getSql();
   try {
     await sql`
@@ -174,6 +176,7 @@ export async function recordOpen(emailId: string) {
 /** Record a link click separately so analytics can show who clicked. */
 export async function recordClick(emailId: string) {
   if (!hasDatabase() || !emailId) return false;
+  await ensureEmailTrackingColumns();
   const sql = getSql();
   try {
     await sql`
@@ -209,6 +212,7 @@ export async function listEmails(opts?: {
   offset?: number;
 }): Promise<EmailRow[]> {
   if (!hasDatabase()) return [];
+  await ensureEmailTrackingColumns();
   const sql = getSql();
   const limit = Math.min(Math.max(opts?.limit || 200, 1), 2000);
   const offset = opts?.offset || 0;
@@ -217,20 +221,24 @@ export async function listEmails(opts?: {
   const q = (opts?.q || '').trim();
 
   if (status === 'clicked') {
-    if (q) {
-      const pattern = `%${q}%`;
+    try {
+      if (q) {
+        const pattern = `%${q}%`;
+        return (await sql`
+          SELECT * FROM emails
+          WHERE (lower(COALESCE(last_event,'')) = 'clicked' OR COALESCE(click_count, 0) > 0)
+            AND (recipient ILIKE ${pattern} OR subject ILIKE ${pattern})
+          ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+        `) as EmailRow[];
+      }
       return (await sql`
         SELECT * FROM emails
-        WHERE (lower(COALESCE(last_event,'')) = 'clicked' OR COALESCE(click_count, 0) > 0)
-          AND (recipient ILIKE ${pattern} OR subject ILIKE ${pattern})
+        WHERE lower(COALESCE(last_event,'')) = 'clicked' OR COALESCE(click_count, 0) > 0
         ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
       `) as EmailRow[];
+    } catch {
+      return [];
     }
-    return (await sql`
-      SELECT * FROM emails
-      WHERE lower(COALESCE(last_event,'')) = 'clicked' OR COALESCE(click_count, 0) > 0
-      ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
-    `) as EmailRow[];
   }
   if (status && type && q) {
     const pattern = `%${q}%`;
@@ -307,6 +315,8 @@ export async function getStats(): Promise<EmailStats> {
   };
   if (!hasDatabase()) return empty;
 
+  await ensureEmailTrackingColumns();
+
   try {
     const sql = getSql();
     const rows = await sql`
@@ -340,46 +350,36 @@ export async function getStats(): Promise<EmailStats> {
       todayFailed: n(r.today_failed),
     };
   } catch (e) {
-    console.error('getStats error', e);
+    console.error('getStats with click cols failed, basic fallback', e);
     try {
       const sql = getSql();
-      const all = (await sql`SELECT status, message_type, created_at, last_event, click_count, opened_at FROM emails`) as {
-        status: string;
-        message_type: string;
-        created_at: string;
-        last_event?: string | null;
-        click_count?: number | null;
-        opened_at?: string | null;
-      }[];
-      const now = new Date();
-      const isToday = (iso: string) => {
-        try {
-          return new Date(iso).toDateString() === now.toDateString();
-        } catch {
-          return false;
-        }
-      };
+      const rows = await sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('sent','delivered','opened') THEN 1 ELSE 0 END), 0)::int AS sent,
+          COALESCE(SUM(CASE WHEN lower(trim(status)) = 'failed' THEN 1 ELSE 0 END), 0)::int AS failed,
+          COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('delivered','opened') THEN 1 ELSE 0 END), 0)::int AS delivered,
+          COALESCE(SUM(CASE WHEN lower(trim(status)) = 'opened' THEN 1 ELSE 0 END), 0)::int AS opened,
+          COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'otp' THEN 1 ELSE 0 END), 0)::int AS otp,
+          COALESCE(SUM(CASE WHEN lower(trim(message_type)) = 'email' THEN 1 ELSE 0 END), 0)::int AS email,
+          COALESCE(SUM(CASE WHEN created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today,
+          COALESCE(SUM(CASE WHEN lower(trim(status)) IN ('sent','delivered','opened') AND created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today_sent,
+          COALESCE(SUM(CASE WHEN lower(trim(status)) = 'failed' AND created_at >= date_trunc('day', NOW()) THEN 1 ELSE 0 END), 0)::int AS today_failed
+        FROM emails
+      `;
+      const r = (rows as any[])[0] || {};
       return {
-        total: all.length,
-        sent: all.filter((e) => ['sent', 'delivered', 'opened'].includes(st(e.status))).length,
-        failed: all.filter((e) => st(e.status) === 'failed').length,
-        delivered: all.filter((e) => ['delivered', 'opened'].includes(st(e.status))).length,
-        opened: all.filter(
-          (e) => st(e.status) === 'opened' || !!e.opened_at
-        ).length,
-        clicked: all.filter(
-          (e) => st(e.last_event) === 'clicked' || n(e.click_count) > 0
-        ).length,
-        otp: all.filter((e) => st(e.message_type) === 'otp').length,
-        email: all.filter((e) => st(e.message_type) === 'email').length,
-        today: all.filter((e) => isToday(e.created_at)).length,
-        todaySent: all.filter(
-          (e) =>
-            ['sent', 'delivered', 'opened'].includes(st(e.status)) && isToday(e.created_at)
-        ).length,
-        todayFailed: all.filter(
-          (e) => st(e.status) === 'failed' && isToday(e.created_at)
-        ).length,
+        total: n(r.total),
+        sent: n(r.sent),
+        failed: n(r.failed),
+        delivered: n(r.delivered),
+        opened: n(r.opened),
+        clicked: 0,
+        otp: n(r.otp),
+        email: n(r.email),
+        today: n(r.today),
+        todaySent: n(r.today_sent),
+        todayFailed: n(r.today_failed),
       };
     } catch (e2) {
       console.error('getStats fallback error', e2);

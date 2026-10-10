@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSql, hasDatabase } from '../../../lib/db';
+import { getSql, hasDatabase, ensureEmailTrackingColumns } from '../../../lib/db';
 import { getStats } from '../../../lib/store';
 import { leadStats } from '../../../lib/leads';
 
@@ -21,51 +21,91 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Migrate columns if production DB is older than schema.sql
+    await ensureEmailTrackingColumns();
+
     const sql = getSql();
     const days = Math.min(
       Math.max(Number(request.nextUrl.searchParams.get('days') || 14), 1),
       90
     );
 
-    const [stats, leads, daily, topRecipients, byType, openSeries] =
-      await Promise.all([
-        getStats(),
-        leadStats(),
-        sql`
+    const [stats, leads] = await Promise.all([getStats(), leadStats()]);
+
+    let daily: any[] = [];
+    try {
+      daily = (await sql`
+        SELECT date_trunc('day', created_at)::date AS day,
+          COUNT(*)::int AS total,
+          COALESCE(SUM(CASE WHEN lower(status) IN ('sent','delivered','opened') THEN 1 ELSE 0 END),0)::int AS sent,
+          COALESCE(SUM(CASE WHEN lower(status) = 'failed' THEN 1 ELSE 0 END),0)::int AS failed,
+          COALESCE(SUM(CASE WHEN lower(status) = 'opened' OR opened_at IS NOT NULL THEN 1 ELSE 0 END),0)::int AS opened,
+          COALESCE(SUM(CASE WHEN lower(COALESCE(last_event,'')) = 'clicked' OR COALESCE(click_count, 0) > 0 THEN 1 ELSE 0 END),0)::int AS clicked
+        FROM emails
+        WHERE created_at >= NOW() - (${days} || ' days')::interval
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `) as any[];
+    } catch (e) {
+      console.warn('analytics daily with click cols failed, fallback', e);
+      try {
+        daily = (await sql`
           SELECT date_trunc('day', created_at)::date AS day,
             COUNT(*)::int AS total,
             COALESCE(SUM(CASE WHEN lower(status) IN ('sent','delivered','opened') THEN 1 ELSE 0 END),0)::int AS sent,
             COALESCE(SUM(CASE WHEN lower(status) = 'failed' THEN 1 ELSE 0 END),0)::int AS failed,
-            COALESCE(SUM(CASE WHEN lower(status) = 'opened' OR opened_at IS NOT NULL THEN 1 ELSE 0 END),0)::int AS opened,
-            COALESCE(SUM(CASE WHEN lower(COALESCE(last_event,'')) = 'clicked' OR COALESCE(click_count, 0) > 0 THEN 1 ELSE 0 END),0)::int AS clicked
+            COALESCE(SUM(CASE WHEN lower(status) = 'opened' THEN 1 ELSE 0 END),0)::int AS opened,
+            0::int AS clicked
           FROM emails
           WHERE created_at >= NOW() - (${days} || ' days')::interval
           GROUP BY 1
           ORDER BY 1 ASC
-        `,
-        sql`
-          SELECT lower(recipient) AS email, COUNT(*)::int AS c
-          FROM emails
-          WHERE lower(status) IN ('sent','delivered','opened')
-          GROUP BY 1
-          ORDER BY c DESC
-          LIMIT 15
-        `,
-        sql`
-          SELECT message_type, COUNT(*)::int AS c
-          FROM emails
-          GROUP BY message_type
-        `,
-        sql`
-          SELECT date_trunc('day', opened_at)::date AS day,
-            COUNT(*)::int AS opens
-          FROM emails
-          WHERE opened_at IS NOT NULL
-            AND opened_at >= NOW() - (${days} || ' days')::interval
-          GROUP BY 1
-          ORDER BY 1 ASC
-        `,
-      ]);
+        `) as any[];
+      } catch (e2) {
+        console.warn('analytics daily fallback', e2);
+        daily = [];
+      }
+    }
+
+    let topRecipients: any[] = [];
+    try {
+      topRecipients = (await sql`
+        SELECT lower(recipient) AS email, COUNT(*)::int AS c
+        FROM emails
+        WHERE lower(status) IN ('sent','delivered','opened')
+        GROUP BY 1
+        ORDER BY c DESC
+        LIMIT 15
+      `) as any[];
+    } catch {
+      topRecipients = [];
+    }
+
+    let byType: any[] = [];
+    try {
+      byType = (await sql`
+        SELECT message_type, COUNT(*)::int AS c
+        FROM emails
+        GROUP BY message_type
+      `) as any[];
+    } catch {
+      byType = [];
+    }
+
+    let openSeries: any[] = [];
+    try {
+      openSeries = (await sql`
+        SELECT date_trunc('day', opened_at)::date AS day,
+          COUNT(*)::int AS opens
+        FROM emails
+        WHERE opened_at IS NOT NULL
+          AND opened_at >= NOW() - (${days} || ' days')::interval
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `) as any[];
+    } catch {
+      openSeries = [];
+    }
 
     const sent = stats.sent || 0;
     const opened = stats.opened || 0;
@@ -90,7 +130,7 @@ export async function GET(request: NextRequest) {
         leadsTotal: leads.total,
         leadsByStatus: leads.byStatus,
       },
-      daily: (daily as any[]).map((r) => ({
+      daily: daily.map((r) => ({
         day: r.day,
         total: n(r.total),
         sent: n(r.sent),
@@ -98,15 +138,15 @@ export async function GET(request: NextRequest) {
         opened: n(r.opened),
         clicked: n(r.clicked),
       })),
-      opensByDay: (openSeries as any[]).map((r) => ({
+      opensByDay: openSeries.map((r) => ({
         day: r.day,
         opens: n(r.opens),
       })),
-      topRecipients: (topRecipients as any[]).map((r) => ({
+      topRecipients: topRecipients.map((r) => ({
         email: r.email,
         count: n(r.c),
       })),
-      byType: (byType as any[]).map((r) => ({
+      byType: byType.map((r) => ({
         type: r.message_type,
         count: n(r.c),
       })),
