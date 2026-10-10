@@ -9,15 +9,24 @@ type Analytics = {
     failed: number;
     delivered: number;
     opened: number;
+    clicked: number;
     today: number;
     todaySent: number;
     todayFailed: number;
     openRate: number;
+    clickRate: number;
     failRate: number;
     leadsTotal: number;
     leadsByStatus: Record<string, number>;
   };
-  daily: { day: string; total: number; sent: number; failed: number; opened: number }[];
+  daily: {
+    day: string;
+    total: number;
+    sent: number;
+    failed: number;
+    opened: number;
+    clicked?: number;
+  }[];
   topRecipients: { email: string; count: number }[];
   byType: { type: string; count: number }[];
 };
@@ -56,7 +65,9 @@ export default function AnalyticsPage() {
   return (
     <div className="container wide">
       <h1>Analytics</h1>
-      <p className="subtitle">Delivery, opens, and pipeline — LeadBot-style overview</p>
+      <p className="subtitle">
+        Delivery, opens, clicks, and pipeline — LeadBot-style overview
+      </p>
 
       <div className="row-actions" style={{ marginBottom: 16, display: 'flex', gap: 8 }}>
         <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
@@ -79,7 +90,9 @@ export default function AnalyticsPage() {
             <span className="stat-pill">Total {o.total}</span>
             <span className="stat-pill">Sent {o.sent}</span>
             <span className="stat-pill">Opened {o.opened}</span>
+            <span className="stat-pill">Clicked {o.clicked ?? 0}</span>
             <span className="stat-pill">Open rate {o.openRate}%</span>
+            <span className="stat-pill">Click rate {o.clickRate ?? 0}%</span>
             <span className="stat-pill">Failed {o.failed}</span>
             <span className="stat-pill">Fail rate {o.failRate}%</span>
             <span className="stat-pill">Today {o.todaySent}/{o.today}</span>
@@ -110,7 +123,8 @@ export default function AnalyticsPage() {
                     <div key={String(d.day)} className="list-item">
                       <strong>{String(d.day).slice(0, 10)}</strong>
                       <div className="list-meta">
-                        {d.sent} sent · {d.opened} opened · {d.failed} failed
+                        {d.sent} sent · {d.opened} opened · {d.clicked ?? 0} clicked ·{' '}
+                        {d.failed} failed
                       </div>
                       <div
                         style={{

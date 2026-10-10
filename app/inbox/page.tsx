@@ -15,6 +15,9 @@ type Email = {
   delivered_at?: string | null;
   opened_at?: string | null;
   open_count?: number | null;
+  clicked_at?: string | null;
+  click_count?: number | null;
+  last_event?: string | null;
 };
 
 type Stats = {
@@ -23,6 +26,7 @@ type Stats = {
   failed: number;
   delivered?: number;
   opened?: number;
+  clicked?: number;
   otp: number;
   email: number;
   today: number;
@@ -34,7 +38,10 @@ type Stats = {
 
 function statusBadge(e: Email) {
   const s = (e.status || '').toLowerCase();
+  const ev = (e.last_event || '').toLowerCase();
   if (s === 'failed') return { label: 'failed', className: 'error' };
+  if (ev === 'clicked' || (e.click_count && e.click_count > 0))
+    return { label: 'clicked', className: 'open' };
   if (s === 'opened' || e.opened_at) return { label: 'opened', className: 'open' };
   if (s === 'delivered' || e.delivered_at) return { label: 'delivered', className: 'delivered' };
   if (s === 'sent') return { label: 'sent', className: 'sent' };
@@ -45,19 +52,34 @@ function norm(s: string) {
   return (s || '').toLowerCase().trim();
 }
 
+function uniqueEmails(emails: Email[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const e of emails) {
+    const em = (e.recipient || '').trim().toLowerCase();
+    if (!em || seen.has(em)) continue;
+    seen.add(em);
+    out.push(e.recipient.trim());
+  }
+  return out;
+}
+
 export default function InboxPage() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<'all' | 'sent' | 'delivered' | 'opened' | 'failed'>('all');
+  const [status, setStatus] = useState<
+    'all' | 'sent' | 'delivered' | 'opened' | 'clicked' | 'failed'
+  >('all');
   const [type, setType] = useState<'all' | 'email' | 'otp'>('all');
   const [q, setQ] = useState('');
   const [warning, setWarning] = useState('');
+  const [copyFormat, setCopyFormat] = useState<'newline' | 'comma' | 'semicolon'>('newline');
+  const [copyMsg, setCopyMsg] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Always load full list for accurate client counts, then apply filter in UI
       const params = new URLSearchParams();
       params.set('limit', '2000');
       if (type !== 'all') params.set('type', type);
@@ -86,7 +108,6 @@ export default function InboxPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Counts from API, with client recount if delivered/opened stuck at 0
   const display = useMemo(() => {
     const fromRows = {
       total: emails.length,
@@ -99,6 +120,10 @@ export default function InboxPage() {
       ).length,
       opened: emails.filter(
         (e) => norm(e.status) === 'opened' || !!e.opened_at || (e.open_count || 0) > 0
+      ).length,
+      clicked: emails.filter(
+        (e) =>
+          norm(e.last_event || '') === 'clicked' || (e.click_count || 0) > 0
       ).length,
       otp: emails.filter((e) => norm(e.message_type) === 'otp').length,
       email: emails.filter((e) => norm(e.message_type) === 'email').length,
@@ -113,16 +138,13 @@ export default function InboxPage() {
 
     if (!stats) return fromRows;
 
-    const apiDelivered = stats.delivered ?? 0;
-    const apiOpened = stats.opened ?? 0;
-
-    // Prefer API total when higher; never show 0 for delivered/opened if rows prove otherwise
     return {
       total: Math.max(stats.total || 0, fromRows.total),
       sent: Math.max(stats.sent || 0, fromRows.sent),
       failed: Math.max(stats.failed || 0, fromRows.failed),
-      delivered: Math.max(apiDelivered, fromRows.delivered),
-      opened: Math.max(apiOpened, fromRows.opened),
+      delivered: Math.max(stats.delivered ?? 0, fromRows.delivered),
+      opened: Math.max(stats.opened ?? 0, fromRows.opened),
+      clicked: Math.max(stats.clicked ?? 0, fromRows.clicked),
       otp: Math.max(stats.otp || 0, fromRows.otp),
       email: Math.max(stats.email || 0, fromRows.email),
       today: Math.max(stats.today || 0, fromRows.today),
@@ -132,8 +154,12 @@ export default function InboxPage() {
   const filtered = useMemo(() => {
     return emails.filter((e) => {
       const s = norm(e.status);
+      const clicked =
+        norm(e.last_event || '') === 'clicked' || (e.click_count || 0) > 0;
       if (status === 'failed' && s !== 'failed') return false;
-      if (status === 'opened' && s !== 'opened' && !e.opened_at) return false;
+      if (status === 'clicked' && !clicked) return false;
+      if (status === 'opened' && s !== 'opened' && !e.opened_at && !clicked)
+        return false;
       if (
         status === 'delivered' &&
         s !== 'delivered' &&
@@ -150,11 +176,57 @@ export default function InboxPage() {
     });
   }, [emails, status]);
 
+  const emailCount = useMemo(() => uniqueEmails(filtered).length, [filtered]);
+
+  const filterLabel =
+    status === 'opened'
+      ? 'Opened'
+      : status === 'clicked'
+        ? 'Clicked'
+        : status === 'failed'
+          ? 'Failed'
+          : status === 'delivered'
+            ? 'Delivered'
+            : status === 'sent'
+              ? 'Sent'
+              : 'All';
+
+  const copyEmails = async () => {
+    const list = uniqueEmails(filtered);
+    if (list.length === 0) {
+      setCopyMsg('No emails to copy');
+      setTimeout(() => setCopyMsg(''), 2000);
+      return;
+    }
+    const sep =
+      copyFormat === 'comma' ? ', ' : copyFormat === 'semicolon' ? '; ' : '\n';
+    const text = list.join(sep);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMsg(`Copied ${list.length} email${list.length === 1 ? '' : 's'}`);
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setCopyMsg(`Copied ${list.length} email${list.length === 1 ? '' : 's'}`);
+      } catch {
+        setCopyMsg('Copy failed');
+      }
+    }
+    setTimeout(() => setCopyMsg(''), 2500);
+  };
+
   return (
     <div className="container wide">
       <h1>Sent inbox</h1>
       <p className="subtitle">
-        Sent → Delivered → Opened · auto-refresh every 20s
+        Sent → Delivered → Opened → Clicked · auto-refresh every 20s
       </p>
 
       <div className="stats-grid">
@@ -174,6 +246,10 @@ export default function InboxPage() {
           <div className="stat-value">{display.opened}</div>
           <div className="stat-label">Opened</div>
         </div>
+        <div className="stat-card">
+          <div className="stat-value">{display.clicked}</div>
+          <div className="stat-label">Clicked</div>
+        </div>
         <div className="stat-card bad">
           <div className="stat-value">{display.failed}</div>
           <div className="stat-label">Failed</div>
@@ -190,6 +266,7 @@ export default function InboxPage() {
           <option value="sent">Sent / pipeline</option>
           <option value="delivered">Delivered</option>
           <option value="opened">Opened</option>
+          <option value="clicked">Clicked</option>
           <option value="failed">Failed</option>
         </select>
         <select value={type} onChange={(e) => setType(e.target.value as any)}>
@@ -213,11 +290,39 @@ export default function InboxPage() {
         </button>
       </div>
 
+      <div className="filter-bar" style={{ alignItems: 'center' }}>
+        <span className="muted" style={{ fontSize: 13 }}>
+          Copy from filter ({filterLabel})
+        </span>
+        <select
+          value={copyFormat}
+          onChange={(e) =>
+            setCopyFormat(e.target.value as 'newline' | 'comma' | 'semicolon')
+          }
+          title="How to separate emails"
+        >
+          <option value="newline">One per line</option>
+          <option value="comma">Comma separated</option>
+          <option value="semicolon">Semicolon separated</option>
+        </select>
+        <button
+          type="button"
+          onClick={copyEmails}
+          disabled={emailCount === 0}
+          style={{ width: 'auto', padding: '10px 16px' }}
+        >
+          Copy emails{emailCount > 0 ? ` (${emailCount})` : ''}
+        </button>
+        {copyMsg ? (
+          <span style={{ fontSize: 13, color: '#6ee7b7' }}>{copyMsg}</span>
+        ) : null}
+      </div>
+
       {warning && <div className="message info">{warning}</div>}
 
       <p className="muted" style={{ textAlign: 'left', padding: '0 0 12px' }}>
-        Opens track when the recipient loads images. Counts update from the list and the
-        database.
+        Opens track when images load. Clicks track when a link is followed. Counts update
+        from the list and the database.
       </p>
 
       {loading && emails.length === 0 ? (
@@ -233,7 +338,7 @@ export default function InboxPage() {
                 <th>Type</th>
                 <th>Recipient</th>
                 <th>Subject</th>
-                <th>Opens</th>
+                <th>Opens / Clicks</th>
                 <th>When</th>
               </tr>
             </thead>
@@ -249,9 +354,16 @@ export default function InboxPage() {
                     <td>{e.recipient}</td>
                     <td>{e.subject}</td>
                     <td>
-                      {e.open_count && e.open_count > 0
-                        ? `${e.open_count}${e.opened_at ? ` · ${new Date(e.opened_at).toLocaleString()}` : ''}`
-                        : '—'}
+                      {e.click_count && e.click_count > 0
+                        ? `clicks ${e.click_count}`
+                        : e.open_count && e.open_count > 0
+                          ? `opens ${e.open_count}`
+                          : '—'}
+                      {e.clicked_at
+                        ? ` · ${new Date(e.clicked_at).toLocaleString()}`
+                        : e.opened_at
+                          ? ` · ${new Date(e.opened_at).toLocaleString()}`
+                          : ''}
                     </td>
                     <td>{new Date(e.created_at).toLocaleString()}</td>
                   </tr>

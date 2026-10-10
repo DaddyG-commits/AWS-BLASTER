@@ -36,7 +36,8 @@ export async function GET(request: NextRequest) {
             COUNT(*)::int AS total,
             COALESCE(SUM(CASE WHEN lower(status) IN ('sent','delivered','opened') THEN 1 ELSE 0 END),0)::int AS sent,
             COALESCE(SUM(CASE WHEN lower(status) = 'failed' THEN 1 ELSE 0 END),0)::int AS failed,
-            COALESCE(SUM(CASE WHEN lower(status) = 'opened' THEN 1 ELSE 0 END),0)::int AS opened
+            COALESCE(SUM(CASE WHEN lower(status) = 'opened' OR opened_at IS NOT NULL THEN 1 ELSE 0 END),0)::int AS opened,
+            COALESCE(SUM(CASE WHEN lower(COALESCE(last_event,'')) = 'clicked' OR COALESCE(click_count, 0) > 0 THEN 1 ELSE 0 END),0)::int AS clicked
           FROM emails
           WHERE created_at >= NOW() - (${days} || ' days')::interval
           GROUP BY 1
@@ -68,7 +69,10 @@ export async function GET(request: NextRequest) {
 
     const sent = stats.sent || 0;
     const opened = stats.opened || 0;
+    const clicked = stats.clicked || 0;
     const openRate = sent > 0 ? Math.round((opened / sent) * 1000) / 10 : 0;
+    const clickRate =
+      opened > 0 ? Math.round((clicked / opened) * 1000) / 10 : 0;
     const failRate =
       stats.total > 0
         ? Math.round((stats.failed / stats.total) * 1000) / 10
@@ -79,7 +83,9 @@ export async function GET(request: NextRequest) {
       days,
       overview: {
         ...stats,
+        clicked,
         openRate,
+        clickRate,
         failRate,
         leadsTotal: leads.total,
         leadsByStatus: leads.byStatus,
@@ -90,6 +96,7 @@ export async function GET(request: NextRequest) {
         sent: n(r.sent),
         failed: n(r.failed),
         opened: n(r.opened),
+        clicked: n(r.clicked),
       })),
       opensByDay: (openSeries as any[]).map((r) => ({
         day: r.day,
