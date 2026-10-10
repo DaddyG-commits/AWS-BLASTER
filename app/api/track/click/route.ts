@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { recordOpen } from '../../../../lib/store';
+import { recordClick } from '../../../../lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,10 +17,9 @@ export async function GET(request: NextRequest) {
     /* keep default */
   }
 
-  // A click also counts as engagement / opened
   if (id) {
     try {
-      await recordOpen(id);
+      await recordClick(id);
       console.log('[track/click]', id, target);
     } catch (e) {
       console.error('[track/click]', e);
